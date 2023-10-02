@@ -12,11 +12,11 @@ export class DbCustomersService {
   constructor(private databaseService:DatabaseService) { }
 
   getTotalCustomers() {
-    return from(this.databaseService.dbConnection.query("call get_total_customers();"))
+    return from(this.databaseService.query("call get_total_customers();"))
   }
 
   getAllCustomers(fetchImage:boolean, itemsPerPage:number, pageNumber = 1, searchQuery = '', fetchAll = false) {
-    return from(this.databaseService.dbConnection.execute(`call get_all_customers(?, ?, ?, ?, ?);`,[
+    return from(this.databaseService.execute(`call get_all_customers(?, ?, ?, ?, ?);`,[
       fetchImage ? 1 : 0,
       itemsPerPage,
       pageNumber,
@@ -26,7 +26,7 @@ export class DbCustomersService {
   }
 
   addCustomer(customerDetails: CustomerDetails) {
-    return from(this.databaseService.dbConnection.execute("call add_customer(?,?,?,?,?,?,?,?,?);",
+    return from(this.databaseService.execute("call add_customer(?,?,?,?,?,?,?,?,?);",
     [customerDetails.firstName,
     customerDetails.lastName,
     dayjs(customerDetails.dateOfBirth).format('YYYY-MM-DD'),
@@ -39,7 +39,7 @@ export class DbCustomersService {
   }
 
   deleteCustomer(customerGuid:string, hardDelete = 0) {
-    return from(this.databaseService.dbConnection.execute("call delete_customer(?, ?);", [
+    return from(this.databaseService.execute("call delete_customer(?, ?);", [
       hardDelete,
       customerGuid
     ])
@@ -47,33 +47,33 @@ export class DbCustomersService {
   }
 
   getCustomerDetails(customerGuid:string) {
-    return from(this.databaseService.dbConnection.execute("call get_customer_details(?);", [
+    return from(this.databaseService.execute("call get_customer_details(?);", [
       customerGuid
     ]))
   }
 
   getCustomerImage(customerGuid:string) {
-    return from(this.databaseService.dbConnection.execute("call get_customer_image(?);", [
+    return from(this.databaseService.execute("call get_customer_image(?);", [
       customerGuid
     ]))
   }
 
   updateCustomerImage(customerGuid:string, imagePath:string) {
-    return from(this.databaseService.dbConnection.execute("call update_customer_image(?, ?);", [
+    return from(this.databaseService.execute("call update_customer_image(?, ?);", [
       customerGuid,
       imagePath
     ]))
   }
 
   deleteCustomerImage(customerGuid:string) {
-    return from(this.databaseService.dbConnection.execute("call delete_customer_image(?);", [
+    return from(this.databaseService.execute("call delete_customer_image(?);", [
       customerGuid
     ]))
   }
 
 
   updateCustomerDetails(customerDetails:any) {
-    return from(this.databaseService.dbConnection.execute("call update_customer_details(?,?,?,?,?,?,?,?,?);",
+    return from(this.databaseService.execute("call update_customer_details(?,?,?,?,?,?,?,?,?);",
     [
       customerDetails.customerGuid,
       customerDetails.firstName,
@@ -88,13 +88,13 @@ export class DbCustomersService {
   }
 
   getTotalAmountOfProductsBoughtForCustomer(customerGuid:string){
-    return from(this.databaseService.dbConnection.execute("call get_total_amount_of_products_bought_for_customer(?);",[
+    return from(this.databaseService.execute("call get_total_amount_of_products_bought_for_customer(?);",[
       customerGuid
     ]))
   }
 
   getCustomerOrders(customerGuid:string, itemsPerPage:number, pageNumber = 1, searchQuery= '', getCancelledOrders = 1) {
-    return from(this.databaseService.dbConnection.execute("call get_customer_orders (? ,?, ?, ?, ?);",[
+    return from(this.databaseService.execute("call get_customer_orders (? ,?, ?, ?, ?);",[
       getCancelledOrders,
       customerGuid,
       itemsPerPage,

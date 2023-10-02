@@ -10,16 +10,16 @@ export class DbProductCategoriesService {
   constructor(private databaseService: DatabaseService) { }
 
   getTopProductCategories(numberOfCategories:number) {
-    return from(this.databaseService.dbConnection.execute("call get_top_product_categories(?);",[
+    return from(this.databaseService.execute("call get_top_product_categories(?);",[
       numberOfCategories
     ]))
   }
 
   getProductCategories() {
-    return from(this.databaseService.dbConnection.execute("call get_product_categories();"))
+    return from(this.databaseService.query("call get_product_categories();"))
   }
 
   addProductCategory(name: string, description: string) {
-    return from(this.databaseService.dbConnection.execute("call add_product_category(?, ?);", [name, description || null]))
+    return from(this.databaseService.execute("call add_product_category(?, ?);", [name, description || null]))
   }
 }

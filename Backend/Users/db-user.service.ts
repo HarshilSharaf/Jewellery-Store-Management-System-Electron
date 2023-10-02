@@ -10,13 +10,13 @@ export class DbUserService {
   constructor(private dbService:DatabaseService) { }
 
   getUserDetails(userId:number) {
-    return from(this.dbService.dbConnection.select("call get_user_details(?);",[
+    return from(this.dbService.execute("call get_user_details(?);",[
       userId
     ]))
   }
 
   updateUserDetails(userDetails:any) {
-    return from(this.dbService.dbConnection.execute("call update_user_details(?, ?, ?, ?);",[
+    return from(this.dbService.execute("call update_user_details(?, ?, ?, ?);",[
       userDetails.uid,
       userDetails.userName,
       userDetails.password,
@@ -25,20 +25,20 @@ export class DbUserService {
   }
 
   getUserImage(uid:number) {
-    return from(this.dbService.dbConnection.select("call get_user_image(?);", [
+    return from(this.dbService.execute("call get_user_image(?);", [
       uid
     ]))
   }
 
   updateUserImage(uid:number, imageFileName:string ) {
-    return from(this.dbService.dbConnection.select("call update_user_image(?, ?);",[
+    return from(this.dbService.execute("call update_user_image(?, ?);",[
       uid,
       imageFileName
     ]))
   }
 
   deleteUserImage(uid:number) {
-    return from(this.dbService.dbConnection.select("call delete_user_image(?);",[
+    return from(this.dbService.execute("call delete_user_image(?);",[
       uid
     ]))
   }

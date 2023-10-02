@@ -10,10 +10,10 @@ export class DbSubCategoriesService {
   constructor(private databaseService: DatabaseService) { }
 
   getSubCategories() {
-    return from(this.databaseService.dbConnection.query("call get_sub_categories();"))
+    return from(this.databaseService.query("call get_sub_categories();"))
   }
 
   addSubCategory(name: string, description: string) {
-    return from(this.databaseService.dbConnection.execute("call add_sub_category(?, ?);", [name, description || null]))
+    return from(this.databaseService.execute("call add_sub_category(?, ?);", [name, description || null]))
   }
 }

@@ -10,6 +10,6 @@ export class DbCategoriesService {
   constructor(private databaseService:DatabaseService) { }
 
   getAllCategories() {
-    return from(this.databaseService.dbConnection.query("call get_all_categories();"))
+    return from(this.databaseService.query("call get_all_categories();"))
   }
 }

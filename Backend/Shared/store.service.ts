@@ -8,17 +8,17 @@ import { Injectable } from '@angular/core';
 })
 export class StoreService {
 
-  public store:any
+  private store:any
 
   constructor() { }
 
   initializeStore() :Promise<any> {
     return new Promise(async (resolve,reject) => {
       this.store = new Store()
-      const authData = await this.store.get("authData");
+      const authData = await this.get("authData");
       const currentDate = new Date().getTime()
       const expirationDate = new Date(authData?.expiration).getTime()
-      const dbInfo = await this.store.get('defaultDbInfo')
+      const dbInfo = await this.get('defaultDbInfo')
       if(!dbInfo || dbInfo == null) {
         // Add a fallback database to connect to
         const defaultDbInfo: SettingsModel = {
@@ -29,17 +29,49 @@ export class StoreService {
           DATABASE_HOST: 'localhost',
           LAST_UPDATED_ON: new Date().toUTCString(),
         };
-        await this.store.set('defaultDbInfo', defaultDbInfo);
-        // await this.store.save();
+        await this.set('defaultDbInfo', defaultDbInfo);
       }
 
       //delete authData from store if it is expired
       if(authData && ( currentDate > expirationDate))
       {
-        await this.store.delete('authData');
-        // await this.store.save();
+        await this.delete('authData');
       }
       resolve(this.store);
+    })
+  }
+
+  get(key:string): Promise<any> {
+    return new Promise((resolve) => {
+      const value = this.store.get(key)
+      if (value) {
+        resolve(value)
+      }
+      else {
+        resolve(null)
+      }
+    })
+  }
+
+  set(key:string, value:any) {
+    return new Promise(async (resolve, reject) => {
+      try {
+        await this.store.set(key, value);
+        resolve(true)
+      } catch (error) {
+        reject(false)
+      }
+    })
+  }
+
+  delete(key:string) {
+    return new Promise(async (resolve, reject) => {
+      try {
+        await this.store.delete(key);
+        resolve(true)
+      } catch (error) {
+        reject(false)
+      }
     })
   }
 }

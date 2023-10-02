@@ -10,17 +10,17 @@ export class DbInventoryService {
   constructor(private databaseService:DatabaseService) { }
 
   getTotalStock() {
-    return from(this.databaseService.dbConnection.query("call get_total_stock();"))
+    return from(this.databaseService.query("call get_total_stock();"))
   }
 
   getTotalStockOfMasterCategory(mid:number) {
-    return from(this.databaseService.dbConnection.execute("call get_total_stock_of_master_category(?);",[
+    return from(this.databaseService.execute("call get_total_stock_of_master_category(?);",[
       mid
     ]))
   }
 
   getAllProducts(itemsPerPage:number, pageNumber = 1, searchQuery:string = '', fetchSoldProducts = 0) {
-    return from(this.databaseService.dbConnection.execute("call get_all_products(?, ?, ?, ?);",[
+    return from(this.databaseService.execute("call get_all_products(?, ?, ?, ?);",[
       fetchSoldProducts,
       itemsPerPage,
       pageNumber,
@@ -29,7 +29,7 @@ export class DbInventoryService {
   }
 
   addProduct(addProductFormData:any) {
-    return from(this.databaseService.dbConnection.execute("call add_product(?, ?, ?, ?, ?, ?);",[
+    return from(this.databaseService.execute("call add_product(?, ?, ?, ?, ?, ?);",[
       addProductFormData.productWeight,
       addProductFormData.productDescription || null,
       addProductFormData.productCategoryId,
@@ -40,32 +40,32 @@ export class DbInventoryService {
   }
 
   deleteProduct(productGuid:string, hardDelete=0) {
-    return from(this.databaseService.dbConnection.execute("call delete_product(?, ?);", [
+    return from(this.databaseService.execute("call delete_product(?, ?);", [
       hardDelete,
       productGuid
     ]))
   }
 
   deleteProductImage(productGuid:string) {
-    return from(this.databaseService.dbConnection.execute("call delete_product_image(?);",[
+    return from(this.databaseService.execute("call delete_product_image(?);",[
       productGuid
     ]))
   }
 
   getProductDetails(productGuid:string) {
-    return from(this.databaseService.dbConnection.execute("call get_product_details(?);",[
+    return from(this.databaseService.execute("call get_product_details(?);",[
       productGuid
     ]))
   }
 
   getProductImage(productGuid:string) {
-    return from(this.databaseService.dbConnection.execute("call get_product_image(?);",[
+    return from(this.databaseService.execute("call get_product_image(?);",[
       productGuid
     ]))
   }
 
   updateProductDetails(productDetails:any) {
-    return from(this.databaseService.dbConnection.execute("call update_product_details(?,?,?,?,?,?)",[
+    return from(this.databaseService.execute("call update_product_details(?,?,?,?,?,?)",[
       productDetails.productGuid,
       productDetails.productDescription,
       productDetails.productWeight,
@@ -76,7 +76,7 @@ export class DbInventoryService {
   }
 
   updateProductImage(productGuid:string, imagePath:string){
-    return from(this.databaseService.dbConnection.execute("call update_product_image(?, ?);",[
+    return from(this.databaseService.execute("call update_product_image(?, ?);",[
       productGuid,
       imagePath
     ]))
