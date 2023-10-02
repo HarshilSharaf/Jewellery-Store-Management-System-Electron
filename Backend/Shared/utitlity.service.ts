@@ -9,8 +9,8 @@ export class UtilityService {
     
     constructor() {}
 
-    getFilePath(imagePath: string) {
-        return ''
+    getFilePath(imagePath: string) {        
+        return 'file://' + imagePath
     }
 
     async relaunch() {

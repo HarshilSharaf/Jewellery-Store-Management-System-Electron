@@ -4,6 +4,7 @@ import { DOC_ORIENTATION } from 'ngx-image-compress';
 import { LoggerService } from './logger.service';
 import { Injectable } from '@angular/core';
 const fs = (<any>window).require('fs');
+const { ipcRenderer } = (<any>window).require('electron')
 
 @Injectable({
   providedIn: 'root'
@@ -23,13 +24,16 @@ export class FileSystemService {
     private imageCompressService: NgxImageCompressService,
     private loggerService: LoggerService
   ) {
-    // In tauri.conf.json need to add path like this so that it can access the $PITCURES folder 
-    // Refer following comment: https://github.com/tauri-apps/tauri/issues/5854#issuecomment-1364662094
-    // pictureDir().then((path)=> {
-    //   this.customerImagesDir = path + `${this.imagesParentDirectoryForApp}\\` + this.customerImagesDirectoryName
-    //   this.productImagesDir  = path + `${this.imagesParentDirectoryForApp}\\` + this.productImagesDirectoryName
-    //   this.userImagesDir = path + `${this.imagesParentDirectoryForApp}\\` + this.userImagesDirectoryName
-    // })
+    // send message to electron
+    ipcRenderer.send('get-pictures-directory')
+    // wait for electron to reply
+    ipcRenderer.once('pictures-directory', (event:any, dir:string) => {
+      if (dir) {
+        this.customerImagesDir = dir + `\\${this.imagesParentDirectoryForApp}\\` + this.customerImagesDirectoryName
+        this.productImagesDir = dir + `\\${this.imagesParentDirectoryForApp}\\` + this.productImagesDirectoryName
+        this.userImagesDir = dir + `\\${this.imagesParentDirectoryForApp}\\` + this.userImagesDirectoryName
+      }
+    }) 
   }
 
   async deleteFileIfExists(dirPath:string, fileName:string) {

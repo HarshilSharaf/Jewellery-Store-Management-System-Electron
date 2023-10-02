@@ -1,4 +1,4 @@
-const { app, BrowserWindow } = require('electron')
+const { app, BrowserWindow, ipcMain, protocol } = require('electron')
 const ElectronStore = require('electron-store');
 ElectronStore.initRenderer();
 
@@ -10,6 +10,8 @@ const createWindow = () => {
       nodeIntegration: true,
       contextIsolation: false,
       enableRemoteModule: true,
+      // TODO: Find a safe way to load local resources instead of disabling webSecurity
+      webSecurity: false
     }
   })
 
@@ -18,6 +20,12 @@ const createWindow = () => {
 
 }
 
+// Refer Following link for more info: https://www.electronjs.org/docs/latest/api/app#appgetpathname
+const getPicturesDirectory = () => app.getPath('pictures')
+
 app.whenReady().then(() => {
   createWindow()
+  ipcMain.on('get-pictures-directory', (event) => {
+    event.sender.send('pictures-directory', getPicturesDirectory())
+  })
 })
