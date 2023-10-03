@@ -28,4 +28,9 @@ app.whenReady().then(() => {
   ipcMain.on('get-pictures-directory', (event) => {
     event.sender.send('pictures-directory', getPicturesDirectory())
   })
+
+  ipcMain.handle('relaunch-app', () => {
+    app.relaunch();
+    app.quit();
+  });
 })

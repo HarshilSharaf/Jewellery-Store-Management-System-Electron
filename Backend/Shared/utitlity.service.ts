@@ -1,5 +1,7 @@
 
 import { Injectable } from '@angular/core';
+const { ipcRenderer } = (<any>window).require('electron');
+
 
 @Injectable({
   providedIn: 'root'
@@ -14,6 +16,6 @@ export class UtilityService {
     }
 
     async relaunch() {
-        return
+        ipcRenderer.invoke('relaunch-app');
     }
 }
