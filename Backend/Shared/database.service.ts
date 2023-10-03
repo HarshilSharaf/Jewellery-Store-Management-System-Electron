@@ -2,6 +2,8 @@ import { SettingsModel } from 'client/app/modules/settings/models/settings-model
 import {createConnection, createPool} from 'mysql2';
 import { StoreService } from './store.service';
 import { Injectable } from '@angular/core';
+import Swal from 'sweetalert2';
+import { Router } from '@angular/router';
 const mysql = (<any>window).require('mysql2/promise');
 
 
@@ -12,7 +14,7 @@ export class DatabaseService {
 
   private dbConnection!: any;
   private dbConnectionInfo!:SettingsModel
-  constructor(private storeService:StoreService) { }
+  constructor(private storeService:StoreService, private router: Router) { }
 
   initializeDbConnection():Promise<any> {
     return new Promise(async (resolve,reject) => {
@@ -35,13 +37,46 @@ export class DatabaseService {
             password: this.dbConnectionInfo.DATABASE_PASSWORD
           })
         } catch (error) {
-          let timerInterval: any;
-          throw error
+          this.showErrorAndRedirectToSettingsPage(error);
         }
       
       
       resolve(this.dbConnection);
     })
+  }
+
+  showErrorAndRedirectToSettingsPage(error: any) {
+    let timerInterval: any;
+    Swal.fire({
+      title: 'Could Not Connect To Database!',
+      html: `<span class="text-danger"> Error: ${error} 
+        <p class="text-warning my-2"> Redirecting to Settings Page...</p>
+        </span>`,
+      timer: 4000,
+      timerProgressBar: true,
+      allowEscapeKey : false,
+      allowOutsideClick: false,
+      didOpen: () => {
+        Swal.showLoading();
+        const b = Swal.getHtmlContainer()?.querySelector(
+          'b'
+        ) as HTMLElement;
+        timerInterval = setInterval(() => {
+          b.textContent = Swal.getTimerLeft()?.toString() ?? '000000';
+        }, 100);
+      },
+      willClose: () => {
+        clearInterval(timerInterval);
+      },
+    }).then((result) => {
+      if (result.dismiss === Swal.DismissReason.timer) {
+        this.router.navigate(['settings'], {
+          state: {
+            error: error,
+          },
+        });
+      }
+    });
   }
 
   /**
