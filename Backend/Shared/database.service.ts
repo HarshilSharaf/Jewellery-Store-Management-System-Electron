@@ -44,11 +44,30 @@ export class DatabaseService {
     })
   }
 
+  /**
+ * This method performs merging of all arrays returned by mysql2 adapter.
+ * @param {any[]} finalResult - The array to merge into.
+ * @param {any} results - The output of mysql2 query.
+ * @returns {any[]} - The merged array of objects.
+ */
+  prepareResponseData(finalResult: any[], results: any): any[] {
+    // the following code will remove last element of the array.
+    // as mysql2 includes ResultSetHeader object with the query result
+    const filteredResults = results.slice(0, -1)
+    filteredResults.forEach((result: any[]) => {
+      finalResult = [...finalResult, ...result]
+    });
+
+    return finalResult
+  }
+
   execute(query: string, values:any[]):Promise<any> {
     return new Promise (async(resolve, reject) => {
       try {
         const [results] = await this.dbConnection.execute(query, values)
-        resolve(results[0]) 
+        let finalResult:any[] = []
+        finalResult = this.prepareResponseData(finalResult, results)
+        resolve(finalResult) 
       } catch (error) {
         reject(error)
       }
@@ -59,7 +78,9 @@ export class DatabaseService {
     return new Promise (async(resolve, reject) => {
       try {
         const [results] = await this.dbConnection.query(query)
-        resolve(results[0]) 
+        let finalResult:any[] = []
+        finalResult = this.prepareResponseData(finalResult, results)
+        resolve(finalResult) 
       } catch (error) {
         reject(error)
       }
