@@ -161,13 +161,11 @@ export class FileSystemService {
 
  async saveCustomerImage(imageFile:any, imageFileName:string): Promise<void> {
 
-  const customerImagesDirPath = this.imagesParentDirectoryForApp + '\\' + this.customerImagesDirectoryName
-
-  const saveToPath = customerImagesDirPath + '\\' + imageFileName
+  const saveToPath = this.customerImagesDir + '\\' + imageFileName
   
     //create directory if not exists
-      if (!fs.existsSync(customerImagesDirPath)) {
-         fs.mkdirSync(customerImagesDirPath)
+      if (!fs.existsSync(this.customerImagesDir)) {
+         fs.mkdirSync(this.customerImagesDir)
     }
 
   return this.compressAndSaveImage(saveToPath, imageFile, 'saveCustomerImage')
@@ -175,13 +173,11 @@ export class FileSystemService {
 
   async saveProductImage(imageFile:any, imageFileName:string) {
 
-    const productImagesDirPath = this.imagesParentDirectoryForApp + '\\' + this.productImagesDirectoryName
-
-    const saveToPath = productImagesDirPath + '\\' + imageFileName
+    const saveToPath = this.productImagesDir + '\\' + imageFileName
 
     //create directory if not exists
-    if (! fs.existsSync(productImagesDirPath)) {
-         fs.mkdirSync(productImagesDirPath)
+    if (! fs.existsSync(this.productImagesDir)) {
+         fs.mkdirSync(this.productImagesDir)
     }
     return this.compressAndSaveImage(saveToPath, imageFile,'saveProductImage')
 
