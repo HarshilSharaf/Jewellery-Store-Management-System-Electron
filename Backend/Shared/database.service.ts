@@ -86,12 +86,14 @@ export class DatabaseService {
  * @returns {any[]} - The merged array of objects.
  */
   prepareResponseData(finalResult: any[], results: any): any[] {
-    // the following code will remove last element of the array.
-    // as mysql2 includes ResultSetHeader object with the query result
-    const filteredResults = results.slice(0, -1)
-    filteredResults.forEach((result: any[]) => {
-      finalResult = [...finalResult, ...result]
-    });
+    if(results.length) {
+      // the following code will remove last element of the array.
+      // as mysql2 includes ResultSetHeader object with the query result
+      const filteredResults = results.slice(0, -1)
+      filteredResults.forEach((result: any[]) => {
+        finalResult = [...finalResult, ...result]
+      });
+    }
 
     return finalResult
   }
