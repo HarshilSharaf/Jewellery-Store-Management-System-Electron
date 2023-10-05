@@ -1,10 +1,11 @@
 import { Injectable } from '@angular/core';
+import { LoggerServiceInterface } from 'client/app/interfaces/Shared/logger-service-interface';
 const logger = (<any>window).require('electron-log');
 
 @Injectable({
   providedIn: 'root'
 })
-export class LoggerService {
+export class LoggerService implements LoggerServiceInterface{
   constructor() {}
 
   public LogInfo(infoString: string) {

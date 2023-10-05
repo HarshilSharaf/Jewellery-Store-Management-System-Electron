@@ -2,11 +2,12 @@ import { SettingsModel } from 'client/app/modules/settings/models/settings-model
 const Store = (<any>window).require('electron-store');
 
 import { Injectable } from '@angular/core';
+import { StoreServiceInterface } from 'client/app/interfaces/Shared/store-service-interface';
 
 @Injectable({
   providedIn: 'root'
 })
-export class StoreService {
+export class StoreService implements StoreServiceInterface {
 
   private store:any
 

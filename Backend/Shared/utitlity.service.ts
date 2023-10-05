@@ -1,5 +1,6 @@
 
 import { Injectable } from '@angular/core';
+import { UtilityServiceInterface } from 'client/app/interfaces/Shared/utility-service-interface';
 const { ipcRenderer } = (<any>window).require('electron');
 
 
@@ -7,7 +8,7 @@ const { ipcRenderer } = (<any>window).require('electron');
   providedIn: 'root'
 })
 
-export class UtilityService {
+export class UtilityService implements UtilityServiceInterface{
     
     constructor() {}
 
