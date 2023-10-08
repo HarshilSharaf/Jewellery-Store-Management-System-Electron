@@ -1,5 +1,7 @@
 const { app, BrowserWindow, ipcMain, protocol } = require('electron')
 const ElectronStore = require('electron-store');
+const isDev = require('electron-is-dev');
+
 ElectronStore.initRenderer();
 
 const createWindow = () => {
@@ -15,8 +17,13 @@ const createWindow = () => {
     }
   })
 
-  win.loadURL('http://localhost:4200/')
-  // win.loadFile('./dist/index.html')
+  if (isDev) {
+    console.log("Running in development");
+    win.loadURL("http://localhost:4200/");
+  } else {
+    console.log("Running in production");
+    win.loadFile("./dist/index.html");
+  }
 
 }
 
