@@ -5,7 +5,7 @@ const isDev = require('electron-is-dev');
 ElectronStore.initRenderer();
 
 const createWindow = () => {
-  const win = new BrowserWindow({
+  const mainWindow = new BrowserWindow({
     width: 800,
     height: 600,
     webPreferences: {
@@ -17,13 +17,32 @@ const createWindow = () => {
     }
   })
 
+  mainWindow.hide();
+
+  var splashScreen = new BrowserWindow({
+    width: 800,
+    height: 600,
+    transparent: true,
+    frame: false,
+    alwaysOnTop: true,
+    center: true
+  });
+
   if (isDev) {
     console.log("Running in development");
-    win.loadURL("http://localhost:4200/");
+    splashScreen.loadURL("http://localhost:4200/assets/splashscreens/splashscreen-1/index.html");
+    mainWindow.loadURL("http://localhost:4200/");
   } else {
     console.log("Running in production");
-    win.loadFile("./dist/index.html");
+    splashScreen.loadFile("./dist/assets/splashscreens/splashscreen-1/index.html");
+    mainWindow.loadFile("./dist/index.html");
   }
+
+  ipcMain.handle('close_splashscreen', () => {
+    console.log("Closing splashscreen");
+    splashScreen.destroy();
+    mainWindow.show();
+  });
 
 }
 
