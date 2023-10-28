@@ -5,13 +5,13 @@
   "scripts": {
     "ng": "ng",
     "start": "ng serve",
-    "build": "ng build --aot --configuration=production --build-optimizer",
+    "build": "ng build --base-href ./ --aot --configuration=production --build-optimizer",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
     "dev": "ng serve",
     "electron": "electron .",
     "electron-dev": "concurrently \"ng serve\" \"npm run electron\"",
-    "electron-build": "npm run build && electron ."
+    "electron-build": "npm run build && set ELECTRON_IS_DEV=0 && electron ."
   },
   "private": true,
   "dependencies": {
