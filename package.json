@@ -14,6 +14,9 @@
     "electron-build": "npm run build && set ELECTRON_IS_DEV=0 && electron ."
   },
   "private": true,
+  "engines": {
+    "node": ">=20.11.0"
+  },
   "dependencies": {
     "@angular/animations": "^19.2.0",
     "@angular/cdk": "^19.2.0",
