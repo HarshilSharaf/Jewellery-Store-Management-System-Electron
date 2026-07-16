@@ -1,7 +1,7 @@
 import { SettingsModel } from 'client/app/modules/settings/models/settings-model';
 const Store = (<any>window).require('electron-store');
 
-import { Injectable } from '@angular/core';
+import { Injectable, signal } from '@angular/core';
 import { StoreServiceInterface } from 'client/app/interfaces/Shared/store-service-interface';
 
 @Injectable({
@@ -9,70 +9,59 @@ import { StoreServiceInterface } from 'client/app/interfaces/Shared/store-servic
 })
 export class StoreService implements StoreServiceInterface {
 
-  private store:any
+  private store: any;
+  isStoreInitialized = signal<boolean>(false);
 
-  constructor() { }
+  constructor() {}
 
-  initializeStore() :Promise<any> {
-    return new Promise(async (resolve,reject) => {
-      this.store = new Store()
-      const authData = await this.get("authData");
-      const currentDate = new Date().getTime()
-      const expirationDate = new Date(authData?.expiration).getTime()
-      const dbInfo = await this.get('defaultDbInfo')
-      if(!dbInfo || dbInfo == null) {
-        // Add a fallback database to connect to
-        const defaultDbInfo: SettingsModel = {
-          DATABASE_NAME: 'JewelleryStore',
-          DATABASE_USERNAME: 'sa',
-          DATABASE_PASSWORD: '****PASSWORD****',
-          DATABASE_PORT: 3306,
-          DATABASE_HOST: 'localhost',
-          LAST_UPDATED_ON: new Date().toUTCString(),
-        };
-        await this.set('defaultDbInfo', defaultDbInfo);
-      }
+  async initializeStore(): Promise<void> {
+    this.store = new Store();
+    const authData = await this.get('authData');
+    const currentDate = new Date().getTime();
+    const expirationDate = new Date(authData?.expiration).getTime();
+    const dbInfo = await this.get('defaultDbInfo');
 
-      //delete authData from store if it is expired
-      if(authData && ( currentDate > expirationDate))
-      {
-        await this.delete('authData');
-      }
-      resolve(this.store);
-    })
+    if (!dbInfo) {
+      // Add a fallback database to connect to
+      const defaultDbInfo: SettingsModel = {
+        DATABASE_NAME: 'jewellery',
+        DATABASE_USERNAME: 'zeus_user',
+        DATABASE_PASSWORD: 'zeus@123',
+        DATABASE_PORT: 3306,
+        DATABASE_HOST: 'localhost',
+        LAST_UPDATED_ON: new Date().toUTCString(),
+      };
+      await this.set('defaultDbInfo', defaultDbInfo);
+    }
+
+    // Delete authData from store if it is expired
+    if (authData && (currentDate > expirationDate)) {
+      await this.delete('authData');
+    }
+
+    this.isStoreInitialized.set(true);
   }
 
-  get(key:string): Promise<any> {
-    return new Promise((resolve) => {
-      const value = this.store.get(key)
-      if (value) {
-        resolve(value)
-      }
-      else {
-        resolve(null)
-      }
-    })
+  async get(key: string): Promise<any> {
+    const value = this.store.get(key);
+    return value ?? null;
   }
 
-  set(key:string, value:any) {
-    return new Promise(async (resolve, reject) => {
-      try {
-        await this.store.set(key, value);
-        resolve(true)
-      } catch (error) {
-        reject(false)
-      }
-    })
+  async set(key: string, value: any): Promise<boolean> {
+    try {
+      this.store.set(key, value);
+      return true;
+    } catch {
+      throw new Error(`Failed to set key: ${key}`);
+    }
   }
 
-  delete(key:string) {
-    return new Promise(async (resolve, reject) => {
-      try {
-        await this.store.delete(key);
-        resolve(true)
-      } catch (error) {
-        reject(false)
-      }
-    })
+  async delete(key: string): Promise<boolean> {
+    try {
+      this.store.delete(key);
+      return true;
+    } catch {
+      throw new Error(`Failed to delete key: ${key}`);
+    }
   }
 }

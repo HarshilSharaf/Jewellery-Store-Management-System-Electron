@@ -1,5 +1,4 @@
 import { Injectable } from '@angular/core';
-import { from } from 'rxjs';
 import { DatabaseService } from '../../Shared/database.service';
 import { MasterCategoryServiceInterface } from 'client/app/interfaces/Categories/MasterCategories/master-category-service-interface';
 
@@ -11,10 +10,10 @@ export class DbMasterCategoriesService implements MasterCategoryServiceInterface
   constructor(private databaseService:DatabaseService) { }
 
   getMasterCategories(){
-    return from(this.databaseService.query("call get_master_categories();"))
+    return this.databaseService.query("call get_master_categories();")
   }
 
   addMasterCategory(name:string,description:string) {
-    return from(this.databaseService.execute("call add_master_category(?, ?);", [name, description || null]))
+    return this.databaseService.execute("call add_master_category(?, ?);", [name, description || null])
   }
 }

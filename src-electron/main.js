@@ -1,6 +1,6 @@
-const { app, BrowserWindow, ipcMain, protocol } = require('electron')
+const { app, BrowserWindow, ipcMain } = require('electron')
 const ElectronStore = require('electron-store');
-const isDev = require('electron-is-dev');
+const isDev = !app.isPackaged;
 
 ElectronStore.initRenderer();
 
@@ -8,10 +8,11 @@ const createWindow = () => {
   const mainWindow = new BrowserWindow({
     width: 800,
     height: 600,
+    skipTaskbar: false,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
-      enableRemoteModule: true,
+      // TODO: Enable contextIsolation and move Node.js operations to preload script
       // TODO: Find a safe way to load local resources instead of disabling webSecurity
       webSecurity: false
     }
@@ -19,12 +20,13 @@ const createWindow = () => {
 
   mainWindow.hide();
 
-  var splashScreen = new BrowserWindow({
+  const splashScreen = new BrowserWindow({
     width: 800,
     height: 600,
     transparent: true,
     frame: false,
     alwaysOnTop: true,
+    // skipTaskbar: true,
     center: true
   });
 
@@ -34,8 +36,8 @@ const createWindow = () => {
     mainWindow.loadURL("http://localhost:4200/");
   } else {
     console.log("Running in production");
-    splashScreen.loadFile("./dist/assets/splashscreens/splashscreen-1/index.html");
-    mainWindow.loadFile("./dist/index.html");
+    splashScreen.loadFile("./dist/browser/assets/splashscreens/splashscreen-1/index.html");
+    mainWindow.loadFile("./dist/browser/index.html");
   }
 
   ipcMain.handle('close_splashscreen', () => {
@@ -43,10 +45,8 @@ const createWindow = () => {
     splashScreen.destroy();
     mainWindow.show();
   });
-
 }
 
-// Refer Following link for more info: https://www.electronjs.org/docs/latest/api/app#appgetpathname
 const getPicturesDirectory = () => app.getPath('pictures')
 
 app.whenReady().then(() => {

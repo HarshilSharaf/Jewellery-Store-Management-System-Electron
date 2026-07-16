@@ -1,0 +1,24 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: jewellery-store-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root@123
+      MYSQL_DATABASE: jewellery
+      MYSQL_USER: zeus_user
+      MYSQL_PASSWORD: zeus@123
+    ports:
+      - "3306:3306"
+    volumes:
+      - jewellery-db-data:/var/lib/mysql
+      - ./docker/init:/docker-entrypoint-initdb.d
+      - ./Scripts:/scripts
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  jewellery-db-data:
