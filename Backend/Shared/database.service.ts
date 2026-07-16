@@ -4,17 +4,45 @@ import { Injectable } from '@angular/core';
 import Swal from 'sweetalert2';
 import { Router } from '@angular/router';
 import { DatabaseServiceInterface } from 'client/app/interfaces/Shared/database-service-interface';
-const mysql = (<any>window).require('mysql2/promise');
+import { LoggerService } from './logger.service';
+
+/**
+ * DEFAULT_QUERY_TIMEOUT_MS is applied to every execute() / query() call
+ * unless a caller overrides it via the options argument. This prevents a
+ * runaway query from stalling the UI indefinitely.
+ */
+const DEFAULT_QUERY_TIMEOUT_MS = 30_000;
+
+/**
+ * Options that can be passed to execute() and query() to override the
+ * default per-query timeout. Kept intentionally small so callers do not
+ * need to change their existing call sites.
+ */
+export interface DbQueryOptions {
+  timeoutMs?: number;
+}
 
 @Injectable({
   providedIn: 'root'
 })
 export class DatabaseService implements DatabaseServiceInterface {
 
-  public dbConnection!: any;
+  /**
+   * Renderer-side handle to the main-process managed pool. This is
+   * intentionally typed as any because the concrete transport is IPC
+   * (via `window.electronAPI.db`), not a mysql2 Connection object as it
+   * was before the IPC bridge landed. The `dbConnection` name is retained
+   * for interface compatibility with existing callers.
+   */
+  public dbConnection: any;
   private dbConnectionInfo!: SettingsModel;
+  private electronAPI: any = (window as any).electronAPI;
 
-  constructor(private storeService: StoreService, private router: Router) {}
+  constructor(
+    private storeService: StoreService,
+    private router: Router,
+    private loggerService: LoggerService
+  ) {}
 
   async initializeDbConnection(): Promise<void> {
     this.dbConnectionInfo = await this.storeService.get('currentDbInfo');
@@ -23,13 +51,26 @@ export class DatabaseService implements DatabaseServiceInterface {
     }
 
     try {
-      this.dbConnection = await mysql.createConnection({
+      // The main process owns the pool. We only pass credentials over IPC once
+      // per app launch. Pool config (connectionLimit, keepAlive, etc.) lives
+      // in main.js so it is a single source of truth for the connection.
+      const result = await this.electronAPI.db.initialize({
         host: this.dbConnectionInfo.DATABASE_HOST,
         user: this.dbConnectionInfo.DATABASE_USERNAME,
         database: this.dbConnectionInfo.DATABASE_NAME,
-        password: this.dbConnectionInfo.DATABASE_PASSWORD
+        password: this.dbConnectionInfo.DATABASE_PASSWORD,
+        port: this.dbConnectionInfo.DATABASE_PORT ?? 3306
       });
+
+      if (result && result.ok === false) {
+        throw new Error(result.error || 'Unknown DB initialization error');
+      }
+
+      // Sentinel to preserve the pre-IPC public shape (`dbConnection` was
+      // truthy when the connection was up; callers may still check it).
+      this.dbConnection = { ready: true };
     } catch (error) {
+      this.loggerService.LogError(error, 'DatabaseService.initializeDbConnection()');
       this.showErrorAndRedirectToSettingsPage(error);
     }
   }
@@ -50,7 +91,7 @@ export class DatabaseService implements DatabaseServiceInterface {
     }).then((result) => {
       if (result.dismiss === Swal.DismissReason.timer) {
         this.router.navigate(['settings'], {
-          state: { error: error.toString() },
+          state: { error: error?.toString?.() ?? String(error) },
         });
       }
     });
@@ -58,10 +99,18 @@ export class DatabaseService implements DatabaseServiceInterface {
 
   /**
    * Merges all result arrays returned by mysql2 adapter.
-   * mysql2 includes a ResultSetHeader as the last element, which is filtered out.
+   *
+   * FRAGILE CONTRACT (do not casually refactor):
+   * mysql2 returns `[rows, fields]` for a plain SELECT but for CALL of a
+   * stored procedure it returns an array whose LAST element is a
+   * ResultSetHeader (OkPacket) — every element BEFORE that is a result set
+   * from one of the SELECTs inside the proc. We slice off the trailing
+   * OkPacket and flatten the remaining sets into one array. Callers rely on
+   * this flattened shape; a large number of components would break if the
+   * shape changed. See individual db-*.service.ts callers.
    */
   prepareResponseData(finalResult: any[], results: any): any[] {
-    if (results.length) {
+    if (results && results.length) {
       const filteredResults = results.slice(0, -1);
       filteredResults.forEach((result: any[]) => {
         finalResult = [...finalResult, ...result];
@@ -70,21 +119,40 @@ export class DatabaseService implements DatabaseServiceInterface {
     return finalResult;
   }
 
-  async execute(query: string, values: any[]): Promise<any> {
+  /**
+   * Executes a parameterised SQL statement (prepared under the hood by
+   * mysql2 in the main process). Applies a default 30s query timeout unless
+   * overridden by `options.timeoutMs`.
+   */
+  async execute(query: string, values: any[], options?: DbQueryOptions): Promise<any> {
+    const timeoutMs = options?.timeoutMs ?? DEFAULT_QUERY_TIMEOUT_MS;
     try {
-      const [results] = await this.dbConnection.execute(query, values);
+      const results = await this.electronAPI.db.execute(query, values, { timeoutMs });
       return this.prepareResponseData([], results);
     } catch (error) {
+      this.loggerService.LogError(error, `DatabaseService.execute(${this.snippet(query)})`);
       throw error;
     }
   }
 
-  async query(query: string): Promise<any> {
+  /**
+   * Executes a raw (non-parameterised) SQL statement. Same timeout semantics
+   * as execute(). Prefer execute() with placeholders wherever the query
+   * takes user-provided values.
+   */
+  async query(query: string, options?: DbQueryOptions): Promise<any> {
+    const timeoutMs = options?.timeoutMs ?? DEFAULT_QUERY_TIMEOUT_MS;
     try {
-      const [results] = await this.dbConnection.query(query);
+      const results = await this.electronAPI.db.query(query, { timeoutMs });
       return this.prepareResponseData([], results);
     } catch (error) {
+      this.loggerService.LogError(error, `DatabaseService.query(${this.snippet(query)})`);
       throw error;
     }
+  }
+
+  private snippet(sql: string): string {
+    if (!sql) { return ''; }
+    return sql.length > 80 ? sql.slice(0, 80) + '...' : sql;
   }
 }
