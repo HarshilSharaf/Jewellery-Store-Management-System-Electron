@@ -22,10 +22,7 @@
     ],
     "skipLibCheck": true,
     "allowSyntheticDefaultImports": true,
-    "useDefineForClassFields": false,
-    "paths": {
-      "crypto": ["./node_modules/crypto-browserify"]
-    }
+    "useDefineForClassFields": false
   },
   "angularCompilerOptions": {
     "enableI18nLegacyMessageIdFormat": false,
