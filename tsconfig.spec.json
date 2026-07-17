@@ -8,8 +8,7 @@
     ]
   },
   "files": [
-    "client/test.ts",
-    "client/polyfills.ts"
+    "client/test.ts"
   ],
   "include": [
     "client/**/*.spec.ts",
