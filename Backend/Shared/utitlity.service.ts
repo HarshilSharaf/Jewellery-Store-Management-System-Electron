@@ -1,22 +1,23 @@
-
 import { Injectable } from '@angular/core';
 import { UtilityServiceInterface } from 'client/app/interfaces/Shared/utility-service-interface';
-const { ipcRenderer } = (<any>window).require('electron');
-
 
 @Injectable({
   providedIn: 'root'
 })
+export class UtilityService implements UtilityServiceInterface {
 
-export class UtilityService implements UtilityServiceInterface{
-    
-    constructor() {}
+  private electronAPI: any = (window as any).electronAPI;
 
-    getFilePath(imagePath: string) {        
-        return 'file://' + imagePath
-    }
+  constructor() {}
 
-    async relaunch() {
-        ipcRenderer.invoke('relaunch-app');
-    }
+  getFilePath(imagePath: string) {
+    return 'file://' + imagePath;
+  }
+
+  async relaunch() {
+    // Goes through the preload-bridged IPC channel rather than requiring
+    // the `electron` module directly (which is not allowed once
+    // contextIsolation is on).
+    await this.electronAPI.app.relaunch();
+  }
 }
