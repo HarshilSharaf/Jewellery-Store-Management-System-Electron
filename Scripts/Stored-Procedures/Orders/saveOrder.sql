@@ -34,7 +34,7 @@ BEGIN
     
 	START TRANSACTION;
 		
-        INSERT INTO INVOICES 
+        INSERT INTO invoices
 			(
 				invoiceGuid,
 				totalAmountWithGst,
