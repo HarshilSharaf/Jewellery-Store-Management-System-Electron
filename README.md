@@ -1,66 +1,51 @@
-# Jewellery Store Management System - Electron
+# Jewellery Store Management System
 
-This application is designed to manage jewellery stores and store their day-to-day data.
-It operates offline and does not require an active internet connection. 
-The main repository for running this project utilizes this [submodule](https://github.com/HarshilSharaf/Jewellery-Store-Management-System-Client/) for the client-side code.
-The application runs on an Angular frontend and Electron backend.
+Offline-first desktop app for jewellery retail operations - customers,
+inventory, orders, invoicing, and payments. Angular 19 renderer inside an
+Electron 40 shell, talking to a local MySQL 8.0 database via stored
+procedures.
 
-This application runs on Electron v26.
+The Angular UI lives in the [`client/`](./client) Git submodule; the parent
+repo holds Electron main-process code, backend services, SQL scripts,
+Docker infra, and documentation.
 
-## Features
-
-- Modern and Easy To Use UI
-- Error Logging
-- Configurable Database
-- Business Analytics Dashboard
-- Customer Details Management (Save/Update/Delete)
-- Product Management (Save/Update/Delete)
-- Order Receipt Download as PDF
-
-## Run Locally
-
-1. Clone the project:
+## Quick start
 
 ```bash
-git clone https://github.com/HarshilSharaf/Jewellery-Store-Management-System-Electron
-```
-2. Navigate to the project directory:
-
-```bash
+git clone --recurse-submodules https://github.com/HarshilSharaf/Jewellery-Store-Management-System-Electron
 cd Jewellery-Store-Management-System-Electron
-```
-
-3. Install Project dependencies:
-
-```bash
+cp .env.example .env
+docker compose up -d
 npm install
+npm start          # terminal A: Angular dev server on :4200
+npm run electron   # terminal B: Electron shell
 ```
 
-4. Create the database schema:
-   Run all the scripts provided in the following path:
-    ```
-    https://github.com/HarshilSharaf/Jewellery-Store-Management-System-Electron/tree/main/Scripts
-    ```
-    To execute all scripts at once, follow these steps:
-     - open cmd
-     - ```cd Tables``` or ```cd Stored-Procedures\${CHILD_FOLDERS}```
-     - ```for %S in (*.sql) do mysql -u USERNAME -pPASSWORD DATABASE < %S``` (Here Password should be entered **without** space after -p )
-     - (Here, replace USERNAME, PASSWORD, and DATABASE with your MySQL credentials.)
+Log in with the seeded `admin` / `admin123`.
 
-5. Run the project
-  - Start Angular Server
-    ```bash
-      npm start
-    ```
-  - Run electron once angular server starts
-    ```bash
-      npm run electron
-    ```    
+## Documentation
 
-## Contributing
-Contributions are welcome! Please create pull requests for any issues or feature requests.\
-This project is still a work in progress.
+Full docs live under [`docs/`](./docs). Highlights:
 
-## References
- - https://www.electronjs.org/docs/latest/api/app
- - https://www.electronjs.org/docs/latest/
+- [Overview](./docs/overview.md) - what the app does.
+- [Getting started (Docker)](./docs/getting-started/quick-start-docker.md)
+- [Getting started (manual MySQL)](./docs/getting-started/quick-start-manual.md)
+- [Architecture](./docs/architecture/high-level.md)
+- [Database schema and ERD](./docs/database/schema.md)
+- [Stored procedure reference](./docs/database/stored-procedures.md)
+- [Runbooks](./docs/runbooks/) - local dev, reset DB, troubleshooting.
+- [Security](./docs/security/hardening-checklist.md)
+- [Contributing](./CONTRIBUTING.md)
+
+## Requirements
+
+- Node 20.11 LTS
+- MySQL 8.0 (Docker recommended)
+- Windows is the primary supported platform; other OSes are best-effort.
+
+See [`docs/getting-started/prerequisites.md`](./docs/getting-started/prerequisites.md)
+for details.
+
+## License
+
+Not yet chosen. Do not redistribute without permission from the maintainers.
