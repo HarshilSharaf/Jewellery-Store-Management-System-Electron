@@ -1,0 +1,25 @@
+# Keep the build context small; nothing outside docker/ and Scripts/ is
+# needed to build the MySQL image.
+node_modules
+dist
+.angular
+.git
+.github
+.vscode
+.claude
+.baseline-logs
+client
+Backend
+src-electron
+docs
+*.md
+*.log
+package.json
+package-lock.json
+angular.json
+tsconfig*.json
+karma.conf.js
+.browserslistrc
+.editorconfig
+.env
+.env.local

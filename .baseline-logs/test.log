@@ -1,0 +1,19 @@
+- Generating browser application bundles (phase: setup)...
+✔ Browser application bundle generation complete.
+[1m[31m
+Error: [91merror[0m[90m TS6053: [0mFile 'C:/My Files/My REPOS/Jewellery-Store-Management-System-Electron/client/polyfills.ts' not found.
+  The file is in the program because:
+    Root file specified for compilation
+
+
+[39m[22m
+[32m16 07 2026 18:47:03.701:INFO [karma-server]: [39mKarma v6.4.4 server started at http://localhost:9876/
+[32m16 07 2026 18:47:03.706:INFO [launcher]: [39mLaunching browsers ChromeHeadless with concurrency unlimited
+[91m16 07 2026 18:47:03.706:ERROR [karma-server]: [39mError: Found 1 load error
+    at Server.<anonymous> (C:\My Files\My REPOS\Jewellery-Store-Management-System-Electron\node_modules\karma\lib\server.js:243:26)
+    at Object.onceWrapper (node:events:630:28)
+    at Server.emit (node:events:521:24)
+    at emitListeningNT (node:net:2052:10)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21)
+✔ Browser application bundle generation complete.
+✔ Browser application bundle generation complete.

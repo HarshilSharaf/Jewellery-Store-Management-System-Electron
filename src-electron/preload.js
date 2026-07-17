@@ -4,9 +4,9 @@
  * With `contextIsolation: true` (see main.js) the renderer cannot call
  * `window.require(...)` or otherwise touch Node APIs. This preload uses
  * `contextBridge.exposeInMainWorld` to publish a narrow, typed-shape
- * surface (`window.electronAPI`) that the Angular services in
- * Backend/**/*.ts wrap. Every method proxies through `ipcRenderer.invoke`
- * to a matching `ipcMain.handle` in main.js.
+ * surface (`window.electronAPI`) that the Angular services under
+ * `Backend/` wrap. Every method proxies through `ipcRenderer.invoke` to a
+ * matching `ipcMain.handle` in main.js.
  *
  * IMPORTANT: only expose the minimum set of channels the renderer needs.
  * Never expose `ipcRenderer` itself or any generic "run this string"

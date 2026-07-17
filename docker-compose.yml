@@ -1,6 +1,7 @@
 services:
   mysql:
-    image: mysql:8.0
+    build: .
+    image: jewellery-db:local
     container_name: jewellery-store-db
     restart: unless-stopped
     # env_file lets `docker compose` read secrets from `.env` (git-ignored).
@@ -17,8 +18,6 @@ services:
       - "${MYSQL_PORT:-3306}:3306"
     volumes:
       - jewellery-db-data:/var/lib/mysql
-      - ./docker/init:/docker-entrypoint-initdb.d
-      - ./Scripts:/scripts
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 10s

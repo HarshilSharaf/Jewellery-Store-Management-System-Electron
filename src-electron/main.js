@@ -168,11 +168,37 @@ const createWindow = () => {
     logger.info('[main] Running in development');
     splashScreen.loadURL('http://localhost:4200/assets/splashscreens/splashscreen-1/index.html');
     mainWindow.loadURL('http://localhost:4200/');
+    // Auto-open DevTools in dev so preload / bootstrap errors surface. The
+    // main window is created with show:false, so without this any preload
+    // load error stays invisible until the app is unstuck.
+    mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     logger.info('[main] Running in production');
     splashScreen.loadFile('./dist/browser/assets/splashscreens/splashscreen-1/index.html');
     mainWindow.loadFile('./dist/browser/index.html');
   }
+
+  // Surface preload load failures. Silent failures here were the reason the
+  // splash could hang forever: window.electronAPI is undefined and the
+  // splash-close script fails the `if (api && api.app)` guard.
+  mainWindow.webContents.on('preload-error', (_e, preloadPath, error) => {
+    logger.error('[main] preload-error:', preloadPath, error);
+  });
+
+  // Safety net: if the renderer never triggers close_splashscreen (preload
+  // failed, network stall, etc.), force the main window to show after 15s
+  // so the user is never permanently locked out of the app.
+  const splashFallbackTimer = setTimeout(() => {
+    if (splashScreen && !splashScreen.isDestroyed()) {
+      logger.warn('[main] Splash fallback timer fired; forcing main window visible');
+      splashScreen.destroy();
+    }
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      mainWindow.show();
+    }
+  }, 15_000);
+
+  mainWindow.on('closed', () => clearTimeout(splashFallbackTimer));
 };
 
 // ---------------------------------------------------------------------------
