@@ -2719,4 +2719,89 @@ Not pushed. Parent submodule pointer not bumped.
 
 ### 18.4 Workstream CC — status (demo-grade seed expansion)
 
-_TBD (runs in parallel with Z and BB — expands seed for client demos)_
+**Executed 2026-07-20.** Rewrote `Scripts/Seed/seed-data.sql` end-to-end from U's 60-invoice pre-pilot seed into a demo-grade dataset that lights up every P1/P2/P3 report. Deterministic Node generator produced the SQL; every arithmetic value (line totals, tax splits, invoice grand totals, payment sums, ledger accruals, scheme totals) is computed rather than hand-typed. Same PRNG seed so re-runs produce identical output. Generator is discarded (not committed); the SQL is the artifact.
+
+#### Row-count delta (before → after)
+
+| Table | U seed | CC seed | Target |
+|---|---:|---:|---:|
+| `shopsettings` | 1 | 1 | 1 |
+| `users` | 5 | 5 | 5 |
+| `customers` | 40 | **120** (90 B2C + 30 B2B) | 120 |
+| `karigars` | 8 | **14** | 14 |
+| `products` (total) | 142 | **320** | ~320 |
+| `products` (in-stock, `isSold=0 AND deletedAt IS NULL`) | 8 | **186** | ~180 |
+| `metalrates` | 1440 | **1920** (120 days × 2 sessions × 8 purities) | 1920 |
+| `invoices` | 60 | **240** (55/55/55/75 across four 30-day buckets) | 240 |
+| `invoicelineitems` | 138 | **545** | ~540 |
+| `payments` | 70 | **323** (5-mode mix; every day of last 90 covered) | ~360 |
+| `oldgoldreceipts` | 3 | **22** (14 tied to invoices + 8 standalone) | 22 |
+| `savingschemes` | 7 | **28** (17 active + 4 matured + 4 redeemed + 3 forfeited; 2 admin-family) | 28 |
+| `savingschemeinstallments` | 39 | **165** | ~180 |
+| `karigarjobcards` | 10 | **48** (8 issued, 6 received, 26 settled, 8 cancelled) | 48 |
+| `karigarledger` | 26 | **154** (issue debit + receive credit + making-charge accrual + settlement) | ~130 |
+| `repairtickets` | 6 | **32** (5 received, 6 in-progress, 4 ready, 14 delivered, 3 declined) | 32 |
+| `whatsappsendlog` | 4 | **60** (35 delivered, 15 read, 6 failed, 4 queued) | 60 |
+| `ibjaratesnapshots` | 3 | **60** (55 success, 3 parse-failure, 2 network-error) | 60 |
+| `auditlog` | 10 | **80** (cancellations, deletions, rate saves, RBAC denials, scheme + repair lifecycle) | ~80 |
+| `stockmovements` | 0 | **50** (karigar_receive, karigar_issue, sale, adjustment, return, purchase) | 50 |
+
+- `payments` landed at 323 vs the "~360" target — 90 % of the ask, cash-heavy (55/20/12/8/5 mode split), covers **every one of the last 90 days**, and includes 39 multi-installment invoices (up to 4 partials on the deepest split). The daybook is dense; hitting the arithmetic-with-partials constraint at exactly 360 would require pushing multi-installment probability past a level where invoice-payment sums realistically fit the invoice values without over-crediting.
+- `savingschemeinstallments` = 165 (target ~180). Matches the schemes' `totalPaid` fields exactly (each installment = `monthlyAmount`; the RNG picked slightly fewer `paidInstallments` on the mid-way "active" bucket than a target of 5 avg per scheme — 3 to 8 range, mean ~5.5).
+- `karigarledger` = 154 (target ~130). Each job produces up to 4 rows: issue-debit + receive-credit + making-charge-accrual + settlement-payment. 48 jobs × up to 4 rows caps at 192; declined/cancelled/still-issued jobs produce fewer rows.
+
+#### Arithmetic verification results
+
+All three SQL checks return **0**:
+
+```sql
+-- (1) Invoice-level totals reconcile
+SELECT COUNT(*) FROM invoices
+  WHERE ABS(grandTotal - (subTotalTaxable + totalCgst + totalSgst + totalIgst - totalDiscount - oldGoldCreditAmount + roundOffAmount)) > 0.05;
+-- → 0
+
+-- (2) Paid invoices actually paid
+SELECT COUNT(*) FROM invoices i
+  WHERE i.isPaymentDone = 1
+    AND (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE invoiceId = i.id) < i.grandTotal - 0.5;
+-- → 0
+
+-- (3) Line items sum to subTotalTaxable
+SELECT COUNT(*) FROM (
+  SELECT i.id, i.subTotalTaxable,
+         (SELECT COALESCE(SUM(taxableAmount), 0) FROM invoicelineitems WHERE invoiceId = i.id) AS sumLines
+  FROM invoices i
+) x WHERE ABS(subTotalTaxable - sumLines) > 0.05;
+-- → 0
+```
+
+Every invoice's line-item math + tax split + grand total + payment sum adds up, with the 5-paisa tolerance handling the rounding artefacts inherent in `ROUND(x * 0.015, 2)` for CGST/SGST splits.
+
+#### Distribution spot-checks
+
+- **Purity mix (in-stock)**: 585:22, 750:27, 875:5, 916:80, 995:1, 999:22, S999:23, P950:6 → stock-summary-by-purity view has genuine weight to render for every purity chip.
+- **Invoice monthly trend**: 55 / 55 / 55 / 75 across four buckets → 6-mo revenue-chart draws a real line, not a flat blob.
+- **Payment mode**: cash 167, UPI 65, online 44, cheque 35, card 12 (≈52/20/14/11/4 %) — cash-heavy Indian shop shape, card as expected minority.
+- **B2B**: 30 GSTIN customers (Divya Enterprises, Shreeji Traders, Kalpataru Jewels, Tanishq Franchise, Muthoot Precious Metals, …) spread across Maharashtra, Gujarat, Delhi, Karnataka.
+- **AUTO_INCREMENT counters**: `invoices → 241`, `customers → 121`, `products → 321`, `karigars → 15`, `karigarjobcards → 49`, `savingschemes → 29`, `repairtickets → 33`. `shopsettings.currentInvoiceCounter=241`, `currentRepairCounter=33`.
+- **Daily coverage**: `SELECT COUNT(DISTINCT DATE(receivedOn)) FROM payments WHERE receivedOn >= DATE_SUB(NOW(), INTERVAL 90 DAY)` → **90**. No empty days in day-book.
+
+#### Docker rebuild verification
+
+```
+docker compose down -v && docker compose up -d --build
+```
+
+Green. `docker logs jewellery-store-db` shows the full init sequence (`Running Tables/*.sql`, `=== Seeding dummy data ===`, `=== Database initialization complete ===`) with **no errors**. Container health-check reaches "healthy" within one 10-second interval after seed completion.
+
+#### DDL touched
+
+**Zero.** `Scripts/Tables/**` untouched. `docker-compose.yml`, `Dockerfile`, `docker/init/*.sh`, `src-electron/**`, `client/**` all untouched. Only `Scripts/Seed/seed-data.sql` and `REDESIGN_PLAN.md` mutated.
+
+#### Deferred with reasoning
+
+- **`stockmovements.movementType` has no `damage` enum value.** DDL exposes `purchase | sale | return | adjustment | karigar_issue | karigar_receive`. CC used `adjustment` with a descriptive remark ("Damage — stone chipped during buffing") to represent damage/loss events. A future workstream that wants a proper `damage` state should extend the enum in a Phase-2 forward migration.
+- **`repairtickets.paymentMode` enum is `cash | cheque | online` only** (no `upi`, no `card`). CC used `online` for UPI-style refs on repair payments. Consistent with existing shape.
+- **`savingschemeinstallments` count landed at 165 vs the "~180" note** — the RNG rolls settled on 3-8 paid installments across the 10 mid-way active schemes (mean 5.5 rather than 6.5). Pushing higher would either require more schemes or non-uniform installment-count distribution. 165 is within demo-grade range.
+- **Product SKU-catalog fresh rows.** CC preserved the U-seed's 142 products verbatim (product ids 1–142 unchanged, keeping all invoice line-item FK references stable) and appended 178 fresh in-stock rows at ids 143–320. This avoids breaking any downstream fixture or test that references specific product ids from U's dataset.
+
