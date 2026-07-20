@@ -2027,7 +2027,114 @@ Nothing else likely to trip on the upgrade. No `mysql_native_password` reference
 
 ### 16.2 Workstream V — status
 
-_TBD_
+**Landed 2026-07-20 on parent branch `integration/modernization-2026-07-17`.** MySQL 8.0 → 8.4 LTS upgrade. Fresh `docker compose down -v && docker compose up -d --build` runs clean end-to-end on the new image; every seed-count target from U matches to the row, every stored-procedure smoke test passes, RBAC `SIGNAL SQLSTATE '45000'` guard on `cancel_order` still fires on 8.4.
+
+**Docker image tag chosen.**
+
+- `Dockerfile` `FROM mysql:8.4.6` (specific patch pin, not the floating `mysql:8.4` alias). 8.4.6 is the current LTS patch as of 2026-07 on Docker Hub. 8.4 is the LTS series: Premier support through 2027-04, Extended through 2032-04. MySQL 9.7 (Innovation track) was deliberately not chosen — Innovation releases carry short lifecycles and are not appropriate for shipped shop software. Docker Hub's `lts` tag alias was verified to be misleading (does not match Oracle's LTS designation); explicit patch tag preferred.
+
+**InnoDB defaults pinned via `docker/mysql.cnf`** (new file, mounted at `/etc/mysql/conf.d/zz-jewellery.cnf` via `Dockerfile` COPY):
+
+```
+[mysqld]
+innodb_io_capacity      = 200
+innodb_change_buffering = all
+```
+
+Rationale — MySQL 8.4 shifted five InnoDB defaults; only two are dangerous on Tier-2/3 shop hardware:
+
+| Variable | 8.0 default | 8.4 default | V action | Why |
+|---|---|---|---|---|
+| `innodb_io_capacity` | 200 | 10000 | **Pin to 200** | 10000 IOPS is fantasy on integrated SATA SSDs; the flush loop would thrash |
+| `innodb_change_buffering` | `all` | `NONE` | **Pin to `all`** | Insert/update batches are small and mixed; the change buffer earns its keep on this workload |
+| `innodb_flush_method` | `fsync` | `O_DIRECT` | Leave at 8.4 default | Better for containerised MySQL — genuinely a win |
+| `innodb_log_buffer_size` | 16 MB | 64 MB | Leave at 8.4 default | Harmless bump; more headroom for bulk seed inserts |
+| `innodb_adaptive_hash_index` | ON | OFF | Leave at 8.4 default | Small workload; adaptive hash contention outweighs benefit |
+
+Runtime verification (from inside the container):
+
+```
+mysql> SELECT VERSION();                         -> 8.4.6
+mysql> SHOW VARIABLES LIKE 'innodb_io_capacity'; -> 200
+mysql> ...'innodb_change_buffering';             -> all
+mysql> ...'innodb_flush_method';                 -> O_DIRECT
+mysql> ...'innodb_log_buffer_size';              -> 67108864 (64 MB)
+mysql> ...'innodb_adaptive_hash_index';          -> OFF
+```
+
+**`mysql_native_password` audit.** Zero references across `Scripts/**`, `Backend/**`, `src-electron/**`, and `client/**` (grep-verified, only doc mentions in `REDESIGN_PLAN.md` itself). MySQL 8.4 removed the plugin outright; all seeded users (`root@%`, `root@localhost`, `zeus_user@%`) auto-negotiated to `caching_sha2_password` on first init. No DDL, no `CREATE USER ... IDENTIFIED WITH` clause required.
+
+**Spatial-index audit.** Zero `SPATIAL INDEX` / `SPATIAL KEY` / `GEOMETRY` / `POINT()` references across `Scripts/Tables/**`. Jewellery data is not geographic; nothing to drop-and-recreate.
+
+**Seed row-count verification (against U's 2362-line seed, MySQL 8.4.6 container):**
+
+| Entity | Target | Landed on 8.4 |
+|---|---|---|
+| `invoices` | 60 | 60 |
+| `invoicelineitems` | ~138 | 138 |
+| `customers` | 40 | 40 |
+| `products` | 142 | 142 |
+| `savingschemes` | 7 | 7 |
+| `karigarjobcards` | 10 | 10 |
+| `repairtickets` | 6 | 6 |
+| `payments` | 70 | 70 |
+| `metalrates` | 1440 | 1440 |
+| `karigars` | 8 | 8 |
+| `karigarledger` | 26 | 26 |
+| `oldgoldreceipts` | 3 | 3 |
+| `ibjaratesnapshots` | 3 | 3 |
+| `whatsappsendlog` | 4 | 4 |
+| `auditlog` | 10 | 10 |
+| `users` | 5 | 5 |
+| `savingschemeinstallments` | 39 | 39 |
+
+Every row present. Every count matches U's arithmetic. `DATE_SUB(NOW(), INTERVAL n DAY) + INTERVAL m HOUR` composition (used in `ibjaratesnapshots` seed) — U flagged as a spot-check candidate, works fine on 8.4 with no strict-mode warning. `JSON_OBJECT` / `JSON_ARRAY` on `whatsappsendlog.templateVariables` and `karigarjobcards.issuedStones` — behaves identically to 8.0.
+
+**Stored-procedure smoke tests (all passed on MySQL 8.4.6):**
+
+1. `CALL get_day_book('2026-04-22', '2026-07-21')` → returns daily payment-mode buckets for every dated invoice, first row `2026-04-22 cash=₹123,139 total=₹123,139 invoiceCount=1`. Correct.
+2. `CALL get_sales_register('2026-04-22', '2026-07-21', NULL, NULL)` → returns 58 non-cancelled invoices with correct CGST/SGST/IGST split (Maharashtra intra-state on 1.50/1.50, other-state IGST 3.00).
+3. `CALL get_stock_summary_by_purity(NULL)` → returns 8 purity rows including unsold-inventory counts across 999/995/916/875/750/585/S999/P950.
+4. `CALL get_gstr1_export_rows('2026-07')` → returns 13 July invoices, HSN 7113 summary row (13 invoices, ₹1,924,194.28 taxable, ₹1,981,920 invoice-value).
+5. **Saving-scheme chain (customer 0e2aa47d...) — `enroll → record → forfeit`:** enrolled `V-smoke plan` (₹5,000 × 12 + 1 bonus), recorded first installment (₹5,000 cash 2026-07-20, `installmentNumber=1 status=active`), then forfeited with reason `V-smoke forfeit`. Scheme row transitioned `active → forfeited`, `forfeitedAt` set. Correct.
+6. **Karigar chain (karigar 173d36ba... uid=1) — `issue → receive → settle`:** issued 25.500g 916-purity job with 2× 0.75ct diamond stone JSON payload, received 25.800g gross / 24.500g net / 0.400g wastage / ₹3,500 making, settled ₹3,500 cash. Job row transitioned `issued → received → settled`. `JSON_ARRAY(JSON_OBJECT(...))` payload persisted verbatim.
+7. **Repair chain (customer 0e2aa47d... uid=1) — `create → update → update → settle`:** created ticket `RAD/REP/2026/00007` (next counter after seed), updated `received → in_progress → ready`, settled `ready → delivered` with ₹320 cash. Correct.
+8. **WhatsApp queue — `queue_whatsapp_send`:** queued a fifth `invoice_delivered_v1` row against invoice 1 with `templateVariables = JSON_OBJECT(customer_name, invoice_number, total)`. Status `queued`, no JSON errors on insert or readback.
+9. **IBJA snapshot — `save_ibja_snapshot`:** saved a fourth AM snapshot with a `JSON_OBJECT('999',7801, '916',7150, 'S999',95, 'P950',3401)` raw response, `status='success'`. Correct.
+10. **`cancel_order` RBAC guard — the make-or-break test on 8.4:** `CALL cancel_order((SELECT invoiceGuid FROM invoices WHERE cancelledAt IS NULL LIMIT 1), 'test', 3)` (uid 3 = employee `rakesh`) returned **`ERROR 1644 (45000) at line 3: Forbidden: canCancelInvoice`** — the `SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT` construct fires identically on 8.4 as on 8.0. No `RESIGNAL` behaviour change tripped.
+
+**`mysql2` driver status.** `mysql2 ~3.17.5` installed (`node -e "require('mysql2/package.json').version"` → `3.17.5`). mysql2 3.11+ supports `caching_sha2_password` natively and works against MySQL 8.4 out of the box. Verified with a live pool connection: `createPool({user:'zeus_user'...}).query('SELECT VERSION()')` returned `8.4.6` cleanly against the 8.4 container. No driver bump required.
+
+**`src-electron/main.js` pool config.** Reviewed — passes plain `{host, user, password, database, port}` to `mysql.createPool`, no `authPlugins` reference, no `insecureAuth`, no `mysql_native_password` string. Nothing to change.
+
+**`Backend/Shared/database.service.ts`.** Reviewed — renderer-side IPC bridge only, no driver config. Nothing to change.
+
+**Warnings observed during rebuild (all benign, all pre-existing):**
+
+- `[MY-010453] root@localhost is created with an empty password` — standard mysql:8.x initialisation notice under `--initialize-insecure`; the actual root password is set from `MYSQL_ROOT_PASSWORD` env immediately after.
+- `[MY-011810] Insecure configuration for --pid-file: Location '/var/run/mysqld'` — Docker image default; not a jeweller-visible concern.
+- `Unable to load '/usr/share/zoneinfo/...tab' as time zone` — the base image ships without the time-zone metadata tables populated. If Phase 4 needs `CONVERT_TZ()` we can `mysql_tzinfo_to_sql` on container start; not required today.
+
+**Files touched (V's ambit only):**
+
+- `Dockerfile` — `FROM mysql:8.0` → `FROM mysql:8.4.6`; added `COPY docker/mysql.cnf /etc/mysql/conf.d/zz-jewellery.cnf`; comment refresh.
+- `docker/mysql.cnf` — new file, 2 `[mysqld]` variables pinned + a WHY comment.
+- `REDESIGN_PLAN.md` — this section.
+
+**Files intentionally not touched:**
+
+- `docker-compose.yml` — uses `build: .`, so the image tag comes from `Dockerfile`. Nothing to update in compose.
+- `docker/init/01-init-db.sh` — the init script is 8.4-compatible as-is (no MySQL-version-specific flags, no `--secure-file-priv`, no `mysql_native_password` grants).
+- `Backend/Shared/database.service.ts`, `src-electron/main.js`, `package.json` — verified compatible, no diff needed.
+- `Scripts/Tables/**`, `Scripts/Stored-Procedures/**`, `Scripts/Seed/**` — every DDL, every SP, and U's 2362-line seed load and behave identically on 8.4.6. Zero breakage; zero SP fixes required.
+- `client/**` — no submodule edits (per scope).
+
+**Deferred / documented, not blocking:**
+
+1. **Time-zone metadata not seeded into the container's `mysql` system schema.** `SELECT CONVERT_TZ(NOW(), 'UTC', 'Asia/Kolkata')` returns NULL because the container's `mysql.time_zone_name` table is empty. Every P1-P3 code path uses `SET time_zone = 'SYSTEM'` (server system timezone) or naked `DATE`/`DATETIME`, so this doesn't bite today. If a future workstream needs named-timezone conversion (e.g. a multi-branch report or a customer-visible "sold at IST" audit stamp), initialise the tables inside the container with `mysqld --initialize-insecure`-time `mysql_tzinfo_to_sql /usr/share/zoneinfo | mysql -u root mysql`. Flagged, not fixed.
+2. **Docker Hub `mysql:8.4-lts` tag alias not used.** Oracle does not publish an official `8.4-lts` moving tag; `mysql:8.4` is a floating major.minor alias. Pinning to `mysql:8.4.6` explicitly is deliberate — reproducible builds, no surprise on patch bumps.
+3. **`innodb_dedicated_server` not enabled.** 8.4 supports `--innodb-dedicated-server` which auto-sizes buffer-pool + log-file based on system RAM. Attractive for shop deployments where hardware varies wildly, but the auto-sizing overshoots on 4 GB shop PCs. If we ship an installer that binds MySQL to a known-good VM-sized container, we can revisit. Not enabled today.
+4. **8.4's new `--mysqlx-*` X-Protocol listener still on default port 33060.** We do not use X-Protocol, but the listener is up. Firewalling is the deployment's job (single-shop network anyway). Not disabled here; harmless.
 
 ### 16.3 Workstream W — status
 
