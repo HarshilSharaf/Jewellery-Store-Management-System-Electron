@@ -13,9 +13,9 @@ export class ShopSettingsService {
     return this.databaseService.query('call get_shop_settings();');
   }
 
-  save(settings: ShopSettings): Promise<ShopSettings[]> {
+  save(settings: ShopSettings, actorUserId: number | null = null): Promise<ShopSettings[]> {
     return this.databaseService.execute(
-      'call save_shop_settings(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);',
+      'call save_shop_settings(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);',
       [
         settings.shopName,
         settings.gstin,
@@ -34,7 +34,10 @@ export class ShopSettingsService {
         settings.currentInvoiceCounter,
         settings.defaultCurrency,
         settings.timezone,
-        settings.roundOffEnabled ? 1 : 0
+        settings.roundOffEnabled ? 1 : 0,
+        settings.backupDir ?? null,
+        settings.defaultPrintVariant ?? 'a4',
+        actorUserId
       ]
     );
   }

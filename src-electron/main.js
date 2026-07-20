@@ -22,6 +22,7 @@ const mysql = require('mysql2/promise');
 const ElectronStore = require('electron-store');
 const bcrypt = require('bcryptjs');
 const logger = require('electron-log');
+const backupService = require('./backup');
 
 const isDev = !app.isPackaged;
 
@@ -268,7 +269,7 @@ function registerIpcHandlers() {
   ipcMain.handle('shopSettings:save', async (_event, payload, options) => {
     return runWithTimeout(async () => {
       const [results] = await pool.execute(
-        'call save_shop_settings(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);',
+        'call save_shop_settings(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);',
         [
           payload?.shopName,
           payload?.gstin,
@@ -288,10 +289,398 @@ function registerIpcHandlers() {
           payload?.defaultCurrency,
           payload?.timezone,
           payload?.roundOffEnabled ? 1 : 0,
+          payload?.backupDir ?? null,
+          payload?.defaultPrintVariant ?? 'a4',
+          payload?.actorUserId ?? null,
         ],
       );
       return results;
     }, options?.timeoutMs);
+  });
+
+  // -- Old-gold receipts ---------------------------------------------------
+  ipcMain.handle('oldGold:saveReceipt', async (_event, payload, options) => {
+    return runWithTimeout(async () => {
+      const [results] = await pool.execute(
+        'call save_old_gold_receipt(?, ?, ?, ?, ?, ?, ?, ?, ?, ?);',
+        [
+          payload?.customerGuid,
+          payload?.invoiceGuid ?? null,
+          payload?.grossWeight,
+          payload?.testedPurityPercent ?? null,
+          payload?.testedPurityCode ?? null,
+          payload?.deductionPercent,
+          payload?.ratePerGram,
+          payload?.creditAmount,
+          payload?.remarks ?? null,
+          payload?.actorUserId ?? null,
+        ],
+      );
+      return results;
+    }, options?.timeoutMs);
+  });
+
+  ipcMain.handle('oldGold:getReceiptsByCustomer', async (_event, customerGuid, options) => {
+    return runWithTimeout(async () => {
+      const [results] = await pool.execute(
+        'call get_old_gold_receipts_by_customer(?);', [customerGuid]);
+      return results;
+    }, options?.timeoutMs);
+  });
+
+  ipcMain.handle('oldGold:getReceiptByInvoice', async (_event, invoiceGuid, options) => {
+    return runWithTimeout(async () => {
+      const [results] = await pool.execute(
+        'call get_old_gold_receipt_by_invoice(?);', [invoiceGuid]);
+      return results;
+    }, options?.timeoutMs);
+  });
+
+  // -- Saving schemes ------------------------------------------------------
+  ipcMain.handle('savingSchemes:enroll', async (_event, payload, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute(
+        'call enroll_saving_scheme(?, ?, ?, ?, ?, ?);',
+        [
+          payload?.customerGuid,
+          payload?.planName,
+          payload?.monthlyAmount,
+          payload?.tenureMonths ?? 11,
+          payload?.bonusInstallments ?? 1,
+          payload?.actorUserId ?? null,
+        ],
+      );
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  ipcMain.handle('savingSchemes:recordInstallment', async (_event, payload, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute(
+        'call record_scheme_installment(?, ?, ?, ?, ?, ?, ?);',
+        [
+          payload?.schemeGuid,
+          payload?.amount,
+          payload?.paymentMode,
+          payload?.refNumber ?? null,
+          payload?.receiptDate ?? null,
+          payload?.actorUserId ?? null,
+          payload?.allowMultipleThisMonth ? 1 : 0,
+        ],
+      );
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  ipcMain.handle('savingSchemes:redeem', async (_event, payload, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute(
+        'call redeem_saving_scheme(?, ?, ?);',
+        [payload?.schemeGuid, payload?.invoiceGuid, payload?.actorUserId ?? null],
+      );
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  ipcMain.handle('savingSchemes:forfeit', async (_event, payload, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute(
+        'call forfeit_saving_scheme(?, ?, ?);',
+        [payload?.schemeGuid, payload?.reason, payload?.actorUserId ?? null],
+      );
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  ipcMain.handle('savingSchemes:getDetails', async (_event, schemeGuid, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute('call get_saving_scheme_details(?);', [schemeGuid]);
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  ipcMain.handle('savingSchemes:getAll', async (_event, args, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute(
+        'call get_all_saving_schemes(?, ?, ?, ?);',
+        [
+          args?.itemsPerPage ?? 20,
+          args?.pageNumber ?? 1,
+          args?.statusFilter ?? null,
+          args?.searchQuery ?? '',
+        ],
+      );
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  ipcMain.handle('savingSchemes:getByCustomer', async (_event, customerGuid, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute('call get_saving_schemes_by_customer(?);', [customerGuid]);
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  // -- Karigar -------------------------------------------------------------
+  ipcMain.handle('karigar:addKarigar', async (_event, payload, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute(
+        'call add_karigar(?, ?, ?, ?, ?);',
+        [
+          payload?.name,
+          payload?.phone ?? null,
+          payload?.address ?? null,
+          payload?.remarks ?? null,
+          payload?.actorUserId ?? null,
+        ],
+      );
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  ipcMain.handle('karigar:getAllKarigars', async (_event, args, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute(
+        'call get_all_karigars(?, ?, ?);',
+        [args?.itemsPerPage ?? 20, args?.pageNumber ?? 1, args?.searchQuery ?? ''],
+      );
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  ipcMain.handle('karigar:updateKarigar', async (_event, payload, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute(
+        'call update_karigar(?, ?, ?, ?, ?, ?);',
+        [
+          payload?.karigarGuid,
+          payload?.name,
+          payload?.phone ?? null,
+          payload?.address ?? null,
+          payload?.remarks ?? null,
+          payload?.actorUserId ?? null,
+        ],
+      );
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  ipcMain.handle('karigar:deleteKarigar', async (_event, args, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute(
+        'call delete_karigar(?, ?);',
+        [args?.karigarGuid, args?.actorUserId ?? null],
+      );
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  ipcMain.handle('karigar:issueJob', async (_event, payload, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute(
+        'call issue_karigar_job(?, ?, ?, ?, ?, ?, ?, ?);',
+        [
+          payload?.karigarGuid,
+          payload?.issueDate ?? null,
+          payload?.issuedGrossWeight,
+          payload?.issuedPurityCode ?? null,
+          payload?.issuedStones ? JSON.stringify(payload.issuedStones) : null,
+          payload?.expectedReturnDate ?? null,
+          payload?.description ?? null,
+          payload?.actorUserId ?? null,
+        ],
+      );
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  ipcMain.handle('karigar:receiveJob', async (_event, payload, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute(
+        'call receive_karigar_job(?, ?, ?, ?, ?, ?, ?, ?, ?, ?);',
+        [
+          payload?.jobGuid,
+          payload?.receivedDate ?? null,
+          payload?.receivedGrossWeight,
+          payload?.receivedNetWeight,
+          payload?.receivedStoneWeight ?? 0,
+          payload?.wastagePercentAllowed ?? 0,
+          payload?.wastageGramsActual ?? 0,
+          payload?.makingCharge ?? 0,
+          payload?.remarks ?? null,
+          payload?.actorUserId ?? null,
+        ],
+      );
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  ipcMain.handle('karigar:settleJob', async (_event, payload, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute(
+        'call settle_karigar_job(?, ?, ?, ?, ?);',
+        [
+          payload?.jobGuid,
+          payload?.settlementAmount,
+          payload?.paymentMode,
+          payload?.refNumber ?? null,
+          payload?.actorUserId ?? null,
+        ],
+      );
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  ipcMain.handle('karigar:getJobDetails', async (_event, jobGuid, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute('call get_karigar_job_card_details(?);', [jobGuid]);
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  ipcMain.handle('karigar:getAllJobs', async (_event, args, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute(
+        'call get_all_karigar_jobs(?, ?, ?, ?);',
+        [
+          args?.itemsPerPage ?? 20,
+          args?.pageNumber ?? 1,
+          args?.karigarGuid ?? null,
+          args?.statusFilter ?? null,
+        ],
+      );
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  ipcMain.handle('karigar:getLedger', async (_event, args, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute(
+        'call get_karigar_ledger(?, ?, ?);',
+        [args?.karigarGuid, args?.dateFrom ?? null, args?.dateTo ?? null],
+      );
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  // -- Reports -------------------------------------------------------------
+  ipcMain.handle('reports:dayBook', async (_event, args, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute(
+        'call get_day_book(?, ?);', [args?.dateFrom, args?.dateTo]);
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  ipcMain.handle('reports:salesRegister', async (_event, args, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute(
+        'call get_sales_register(?, ?, ?, ?);',
+        [args?.dateFrom, args?.dateTo, args?.customerGuid ?? null, args?.statusFilter ?? null],
+      );
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  ipcMain.handle('reports:stockSummaryByPurity', async (_event, args, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute(
+        'call get_stock_summary_by_purity(?);', [args?.asOfDate ?? null]);
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  ipcMain.handle('reports:gstr1Export', async (_event, args, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute(
+        'call get_gstr1_export_rows(?);', [args?.monthYear ?? null]);
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  ipcMain.handle('reports:lowStockByCategory', async (_event, args, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute(
+        'call get_low_stock_by_category(?);', [args?.thresholdCount ?? 3]);
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  // -- Auth: user permissions ---------------------------------------------
+  ipcMain.handle('auth:getUserPermissions', async (_event, userId, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute('call get_user_permissions(?);', [userId]);
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  // -- Backup + restore ----------------------------------------------------
+  async function currentDbConfig() {
+    return {
+      host:     ENV_DB_HOST,
+      port:     ENV_DB_PORT,
+      database: ENV_DB_NAME,
+      user:     ENV_DB_USER,
+      password: ENV_DB_PASSWORD,
+    };
+  }
+
+  async function currentBackupDir(argDir) {
+    if (typeof argDir === 'string' && argDir.length) { return argDir; }
+    try {
+      if (pool) {
+        const [rows] = await pool.query('SELECT backupDir FROM shopsettings WHERE id = 1;');
+        if (rows && rows[0] && rows[0].backupDir) { return rows[0].backupDir; }
+      }
+    } catch (_) { /* fall through */ }
+    return path.join(app.getPath('userData'), 'backups');
+  }
+
+  ipcMain.handle('backup:create', async (_event, payload) => {
+    const cfg = { ...(await currentDbConfig()), ...(payload?.dbConfig || {}) };
+    const dir = await currentBackupDir(payload?.targetDir);
+    try {
+      const result = await backupService.createBackup(cfg, payload?.passphrase, dir);
+      return { ok: true, result };
+    } catch (err) {
+      logger.error('[backup:create] failed:', err);
+      return { ok: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('backup:restore', async (_event, payload) => {
+    const cfg = { ...(await currentDbConfig()), ...(payload?.dbConfig || {}) };
+    try {
+      await backupService.restoreBackup(cfg, payload?.archivePath, payload?.passphrase);
+      return { ok: true };
+    } catch (err) {
+      logger.error('[backup:restore] failed:', err);
+      return { ok: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('backup:list', async (_event, payload) => {
+    const dir = await currentBackupDir(payload?.backupDir);
+    try {
+      const entries = await backupService.listBackups(dir);
+      return { ok: true, entries, backupDir: dir };
+    } catch (err) {
+      logger.error('[backup:list] failed:', err);
+      return { ok: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('backup:delete', async (_event, payload) => {
+    if (payload?.actorType && payload.actorType !== 'admin') {
+      return { ok: false, error: 'Forbidden: canBackup' };
+    }
+    try {
+      await backupService.deleteBackup(payload?.archivePath);
+      return { ok: true };
+    } catch (err) {
+      logger.error('[backup:delete] failed:', err);
+      return { ok: false, error: err.message };
+    }
   });
 
   // -- Store -----------------------------------------------------------------
