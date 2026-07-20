@@ -3104,3 +3104,56 @@ Ran `npm start` and walked through the trigger paths listed in the plan:
 - **`title` fallback for missing input in `dialog.fire`.** If a caller invokes `dialog.fire({})` with no title, no text, no icon, and no input, the panel renders as an empty box. Left as-is (all 146 call sites supply enough content); could be a defensive `ng-container *ngIf="opts.title || opts.text || opts.icon"` guard if a bug shows up.
 
 **Ready for pilot demo** on the modal + toast surface. All 146 call sites migrated; SweetAlert2 fully out of the tree.
+
+---
+
+## 21. Phase 3.7 close — repair declutter + Tally XML + SweetAlert2 replacement
+
+**Reconciled 2026-07-21.** Both P3.7 workstreams (DD scoped-retry + EE SweetAlert2 replacement) landed cleanly.
+
+**Commit trail (parent — P3.7 only):**
+
+- `0cad3fd` — P3.7 kickoff.
+- `cddb1ca` — DD close-out doc.
+- `07abd9b` — EE kickoff doc.
+- `a6be7ef` — EE close-out (Backend/Shared/database.service.ts migration + sweetalert2 drop from package.json + package-lock regen + plan 20.2).
+- (this commit) — reconciliation: submodule pointer bump + section 21.
+
+**Commit trail (submodule `redesign/ui-modernization` — P3.7 only):**
+
+- DD: `54f7ffe` (tally fix) → `e7d2bfb` (report captions) → `86266dc` (Angular 19 `@` escape fix) → `7b8e806` (repair-detail declutter).
+- EE: `f44b505` (primitives) → `872d012` (shared) → `6d1451b` (karigar) → `9868d0e` (customers) → `4ae5de5` (inventory) → `6c96854` (repair) → `f4f1a60` (orders) → `f0aa454` (profile+schemes) → `2c3ab34` (settings 35 sites in one file).
+
+**End-to-end gates on reconciled tree:**
+
+- `ng test --watch=false --browsers=ChromeHeadless` — **48/48 SUCCESS** (up from 37; +11 from EE's dialog/toast specs).
+- `ng build --configuration=development` — PASS (8.0s).
+- `ng build --configuration=production` — PASS (12.6s). Only pre-existing NG8107/NG8102 optional-chain warnings.
+- **Notable win:** the `sweetalert2` CommonJS ESM-bailout warning that appeared on every build since Phase 1 is GONE. Verified by grep: zero `sweetalert2` refs in `package.json`, `package-lock.json`, source code.
+
+**What actually shipped in P3.7:**
+
+1. **Repair-details page decluttered** — rebuilt on the shared `.detail-shell` recipe (matches customer/product/karigar detail pages). Two-row header, primary "Advance to <next status>" amber button + `...` overflow menu (hand-rolled dropdown, no new dep), consolidated party (avatar + name + phone; email/received-by only if present), grid-3 item section (photo left `aspect-square`, description + `.field-grid` right), sticky right sidebar with KPI mini-tiles + Quick actions.
+
+2. **Tally XML fixed at four root causes** — receipt voucher `<PARTYLEDGERNAME>` now uses "Cash Sales" fallback (was payment mode, Tally rejected); sales voucher `<STOCKITEMNAME>` now "Jewellery — Composite" (was synthetic HSN identifier, Tally rejected); every voucher emits deterministic `<GUID>` for idempotent re-imports (`tally-sales-<invoice>` / `tally-receipt-<date>-<ledger>`); empty `<PARTYNAME>` tags fall back to "Cash Sales", empty `<PARTYGSTIN>` tags omitted entirely instead of empty-content. Report pages carry a caption listing the ledgers + stock items shops must create in Tally once before first import. Specs 32 → 37 (+5 for the new guarantees). **Deferred:** live Tally Prime import test — environment cannot run Tally; if user hits a specific error after test, that will inform next fix.
+
+3. **SweetAlert2 replaced entirely** — new in-house `AppDialogService` + `AppDialogComponent` (dialog primitive) and `AppToastService` + `AppToastComponent` (toast primitive), both mounted at AppShell root. All colors bind to `--color-*` tokens (light + dark parity via `[data-theme="dark"]`), 150ms scale+fade with `prefers-reduced-motion` respect, focus trap, Escape close, backdrop close. API is 1:1 with SweetAlert2's `SweetAlertResult` so migration was mechanical. **146 → 0 `Swal.*` call sites migrated across 25 files** (24 client + `Backend/Shared/database.service.ts` since it compiles into the Angular bundle). `sweetalert2` dropped from `package.json` + `package-lock.json`. Bundle: ~30 KB SweetAlert2 out, ~7 KB primitives in. Specs +11 (dialog service 6 + toast service 5) → 48/48 total.
+
+**Original bug fixes vs. what shipped:**
+
+| User-reported | Fixed by | How |
+|---|---|---|
+| Repair-details cluttered | DD | Two-column shell, consolidated header, overflow menu, sticky sidebar |
+| Tally XML not working | DD | Party ledger, stock item, GUID, PARTYNAME fallback |
+| Modal top-space wasted | EE | New AppDialog with `p-5 space-y-3`, top-to-title ≤20px |
+| Modal dark-mode color mismatch | EE | All new primitive colors bind to `--color-*` tokens |
+
+**Live testing verified by EE:** delete-danger dialog (customers), success toast (settings save), forfeit-scheme prompt with reason input, global error toast, DB-settings save + relaunch flow, Escape close, backdrop close, Tab focus trap.
+
+**Deferred (out of scope this phase):**
+
+- Live Tally Prime import verification.
+- Ticket receipt thermal-80mm print (still a `printStub()` toast).
+- WhatsApp real send from Meta Business API (still needs Meta green tick; unchanged from P3).
+
+**Pilot-demo-ready state:** every user-reported bug from this session is closed. Every screen has a coherent detail-shell layout, Tally XML is structurally correct against documented voucher schema, modals fit into the design system as tokens-bound primitives with no external dependency, dark mode is finally consistent everywhere including modals.
