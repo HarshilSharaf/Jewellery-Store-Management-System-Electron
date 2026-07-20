@@ -21,19 +21,26 @@
 
 const logger = require('electron-log');
 
+// Native binding load is deferred until first use. `serialport` links to
+// a per-arch prebuild and can add 30-80 ms to boot; if the binding is
+// broken on the host, the resulting throw must not crash startup.
 let SerialPort = null;
 let ReadlineParser = null;
 let available = false;
+let loadAttempted = false;
 
-try {
-  // eslint-disable-next-line global-require
-  ({ SerialPort } = require('serialport'));
-  // eslint-disable-next-line global-require
-  ({ ReadlineParser } = require('@serialport/parser-readline'));
-  available = true;
-} catch (err) {
-  logger.warn('[scale] `serialport` unavailable; scale integration disabled.', err && err.message);
-  available = false;
+function loadSerialPort() {
+  if (loadAttempted) return available;
+  loadAttempted = true;
+  try {
+    ({ SerialPort } = require('serialport'));
+    ({ ReadlineParser } = require('@serialport/parser-readline'));
+    available = true;
+  } catch (err) {
+    logger.warn('[scale] `serialport` unavailable; scale integration disabled.', err && err.message);
+    available = false;
+  }
+  return available;
 }
 
 const STABLE_HOLD_MS = 500;
@@ -63,7 +70,7 @@ function parseFrame(raw) {
 }
 
 async function listPorts() {
-  if (!available || !SerialPort) { return []; }
+  if (!loadSerialPort() || !SerialPort) { return []; }
   try {
     const ports = await SerialPort.list();
     return ports.map((p) => ({
@@ -107,7 +114,7 @@ async function close() {
 }
 
 async function open(portPath, baudRate, onReading) {
-  if (!available || !SerialPort) {
+  if (!loadSerialPort() || !SerialPort) {
     throw new Error('serialport module is not available on this machine');
   }
   if (isOpen()) { await close(); }
@@ -190,7 +197,10 @@ function getReading() {
 
 function status() {
   return {
-    available,
+    // Report a truthful value: if we never tried loading, we don't know
+    // yet — but the renderer's `status()` call is itself a probe, so
+    // attempt-load now to give an accurate answer.
+    available: loadSerialPort(),
     isOpen: isOpen(),
     path: currentPort?.path ?? null,
     baudRate: currentPort?.baudRate ?? null,
@@ -199,7 +209,7 @@ function status() {
 }
 
 module.exports = {
-  get available() { return available; },
+  get available() { return loadSerialPort(); },
   listPorts,
   open,
   close,
