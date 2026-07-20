@@ -1897,3 +1897,45 @@ component .ts files) plus `client/locale/messages.{hi,gu,mr}.xlf` and
 **Product state:** Every wedge from the original positioning ("modern UI, keyboard-first" + "WhatsApp bill send built-in" + "HUID never paywalled" + "CSV migration IN and OUT") is either shipped or one external-dependency away from shipping. The Marg-style incumbent side-by-side demo is ready to run.
 
 **What ships in a v1 pilot:** Everything except WhatsApp real delivery (needs Meta green tick) and IBJA auto-fetch reliability (needs fixture-based regression). Both have opt-in toggles so pilots can run without them.
+
+---
+
+## 16. Phase 3.5 — pre-pilot polish
+
+**Kicked off 2026-07-21.** Five practical concerns raised before the first real pilot ship:
+
+1. **Fresh dummy-data script** covering every feature added through Phases 1-3 (previous seed data predates saving-scheme + karigar + repair + WhatsApp + IBJA). Empty the local DB and re-seed with a coherent narrative dataset that lights up every screen on first launch.
+2. **Angular build performance for low-spec shop PCs.** Bundle size, lazy-load coverage, tree-shaking, image lazy-loading, `ChangeDetectionStrategy.OnPush` audit, chart-lib footprint, Chart.js dynamic import, initial paint on 4 GB RAM + Windows 10 + integrated GPU. Not touching MySQL — this is renderer-side only.
+3. **MySQL 8.0 → 8.4 LTS upgrade.** MySQL 8.4 is the current LTS (Premier support through 2027-04, Extended through 2032-04); MySQL 9.7 is Innovation-track (short lifecycle, not appropriate for shipped shop software). Upgrade path 8.0 → 8.4 is direct, single-major-step, supported. Key breaking changes to pin: drop-and-recreate spatial indexes; `innodb_change_buffering` now OFF (write regression risk); `innodb_io_capacity` default 200 → 10000 (thrashes slow SSDs on low-spec shop hardware — must pin explicitly to 200-400); `innodb_flush_method` → `O_DIRECT`; `innodb_log_buffer_size` 16MB → 64MB. `mysql_native_password` deprecated authentication plugin removed.
+4. **UI polish sweep.** Self-directed scan for minor issues across all screens shipped through Phase 3. No specific bug list — auditor discretion. Fixes only, no new features.
+5. **Typography presets in Settings.** Curated typography presets (Editorial default = current Instrument Serif + Inter + Hind; Modern Sans = Inter throughout; Traditional Devanagari = Hind display + Inter body; Compact = dense small-type scale; possibly 1-2 more). User picks a preset via Settings > Appearance tab; preference persists to `ShopSettings`; each preset defines display + body + Devanagari + mono as a coordinated set. Preserves the editorial design direction.
+
+**Execution.** Five workstreams, parallel where safe:
+
+- **U** — dummy-data rewrite. Sequential (blocks V's docker rebuild verification). Touches `Scripts/Seed/seed-data.sql` + minor DDL fills.
+- **V** — MySQL 8.4 upgrade. Sequential after U (needs fresh seed to test import). Touches `docker-compose.yml`, `docker/init/**`, `Backend/Shared/database.service.ts` if any query differs.
+- **W** — Angular build performance. Client-only. Runs in parallel with U + V. Touches `angular.json` optimization flags, component `ChangeDetectionStrategy`, chart lazy loading, image `loading="lazy"`, unused-imports audit.
+- **X** — UI polish sweep. Client-only. Runs in parallel with U + V + W but stays out of W's territory (structural component changes).
+- **Y** — Typography presets. Client-only. Small ShopSettings extension. Runs in parallel with X.
+
+**Non-negotiables carried forward:** destructive data policy (no migrations), design-system continuity, no new npm packages except when Phase 3.5 concerns genuinely warrant one.
+
+### 16.1 Workstream U — status
+
+_TBD_
+
+### 16.2 Workstream V — status
+
+_TBD_
+
+### 16.3 Workstream W — status
+
+_TBD_
+
+### 16.4 Workstream X — status
+
+_TBD_
+
+### 16.5 Workstream Y — status
+
+_TBD_
