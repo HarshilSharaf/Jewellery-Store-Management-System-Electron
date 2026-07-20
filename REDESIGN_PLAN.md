@@ -2877,3 +2877,24 @@ Green. `docker logs jewellery-store-db` shows the full init sequence (`Running T
 | CC — Demo-grade seed expansion | Shipped | Every report screen tells a story now |
 
 **Pilot-demo-ready state:** The app is ready to walk a client through a 30-minute demo without any screen showing "empty state" or "loading forever" or "no data yet". Every feature has content that tells a business story.
+
+---
+
+## 20. Phase 3.7 — repair-detail declutter, Tally XML, modal tightening
+
+**Kicked off 2026-07-21.** Four user-reported polish items to fix before pilot demo:
+
+1. **Repair-details page cluttered** — too many stacked sections, header dense with meta + status + action cluster + party avatar all vertical. Restructure for breathing room.
+2. **Tally XML import fails in Tally Prime** — user reports Tally shows an error on import. Code inspection reveals likely causes:
+   - Receipt voucher `<PARTYLEDGERNAME>` uses payment method (Cash/Bank Account/UPI Suspense) — Tally expects customer ledger.
+   - Sales voucher `<STOCKITEMNAME>HSN 7113 - B2B</STOCKITEMNAME>` synthetic identifier — Tally rejects unknown stock items.
+   - No `<GUID>` on vouchers — dedup impossible on re-import.
+   - Ledger names hard-coded assume shop has created matching ledgers.
+3. **SweetAlert2 modals waste top space** — default padding + title/text as two lines. Global CSS override to tighten.
+4. **SweetAlert2 modals color-mismatch in dark mode** — ignores app tokens. Same CSS override pass binds to `--color-*` tokens under `[data-theme="dark"]`.
+
+**Workstream DD** — all four in one client-submodule pass. Same shape as prior polish workstreams. Runs sequentially, small logical commits, then parent pointer bump + section 20.1.
+
+### 20.1 Workstream DD — status
+
+_TBD_
