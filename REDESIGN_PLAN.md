@@ -1,109 +1,236 @@
-# Redesign Plan — Phase 1 Workstream reports
+# Redesign Plan — Commercial Jewellery POS for Small Indian Jewellers
 
-The prose sections 1-7 (product positioning, design direction, feature gap, phased roadmap, non-goals, risks) live in the orchestrator's brief inline and are not tracked in the repo. This file is the durable status log — one section per workstream, appended in order.
+**Date:** 2026-07-20
+**Working branch:** `integration/modernization-2026-07-17` (further branches per phase, TBD)
+**Data policy:** dummy data everywhere — schema changes are **destructive** (drop + recreate). No migration path. `docker compose down -v && docker compose up -d` re-seeds from scratch.
 
-## 7.1 Workstream A — status
+---
 
-See parent commit `8b54afd` — "feat(phase-1): rebuild schema + cart engine around jewellery-domain data model" — for the full backend/schema rebuild landed 2026-07-20.
+## 1. Positioning
 
-## 7.2 Workstream B — status
+Every incumbent (Marg, Ornate, WinGold, DevLogic, JGold, SwarnApp, Munim) is opaque, visually stuck in 2005, sold via dealer networks, and notorious for licensing hostage-taking and broken support. Vyapar has modern UX but weak jewellery depth.
 
-See parent submodule-pointer commit `0942c30` and client-submodule commits `c46c943` / `705f64a` / `c4a4384` / `e636161` — "design-system foundation" (2026-07-20). Tailwind / Spartan / Lucide / self-hosted fonts were deferred because they required parent-repo edits during a concurrent Workstream A pass.
+**Pitch:** *"A modern, offline-first jewellery POS that a shop clerk can learn in 20 minutes, that ships hardware-ready out of the box, and that never holds your data hostage."*
 
-## 7.3 Workstream C — status
+**Target:** Small single-shop Indian jewellers, Tier-2/3 focus. Not global. Not multi-branch chains.
+**Delivery:** Offline-first Electron desktop + license key (Tally-style). No cloud sync in v1.
+**Pricing hypothesis:** ₹19,999 perpetual + ₹4,999/yr optional AMC.
 
-**Update: 2026-07-20 — Design-system stack installed; login + navbar reskinned onto Tailwind + Spartan/brain + Lucide; fonts self-hosted.**
+**Four defensible wedges:**
 
-**Packages installed (parent `package.json` devDependencies)**
-
-- `tailwindcss@^3.4.19` (v3 chosen — v4 has Angular integration friction and Spartan's Angular-19-compatible alphas peer on `>=3.3`).
-- `postcss@^8.5.20` + `autoprefixer@^10.5.4`.
-- `tailwindcss-animate@^1.0.7`.
-- `tailwind-merge@^2.6.1` + `clsx@^2.1.1` + `class-variance-authority@^0.7.1`.
-- `@spartan-ng/brain@0.0.1-alpha.563` — **pinned**, the last version whose peer deps accept `@angular/core ^19`; alpha.564+ requires Angular 20+. Spartan's helm styling packages (`@spartan-ng/ui-button-helm` etc.) are deprecated in favor of a CLI generator; we hand-roll the equivalent recipes as `@layer components` in `client/styles.scss` (see `.hlm-btn`, `.hlm-btn-primary`, `.hlm-btn-ghost`, `.hlm-btn-icon`, `.hlm-input`).
-- `@ng-icons/core@^31.4.0` + `@ng-icons/lucide@^31.4.0` — 31.x is the last minor supporting `@angular/core >=18`; 32.0 needs 20+, 33.0 needs 21+.
-
-**Tailwind config**
-
-- `tailwind.config.js` at repo root. Content globs: `./client/index.html`, `./client/**/*.{html,ts,scss}`. Darkmode: `['selector', 'html[data-theme="dark"]']`.
-- Theme colors mapped to Workstream B's semantic tokens via `var(--color-*)` references — e.g. `colors.bg = 'var(--color-bg)'`, `colors.accent.DEFAULT = 'var(--color-accent)'`, plus muted/subtle/hover/active variants and success/warning/danger scales. Same for `borderRadius`, `boxShadow`, `ringColor`. Font families: `sans: ['Inter', 'Hind', 'system-ui', '-apple-system', 'sans-serif']`, `serif: ['"Instrument Serif"', 'Fraunces', 'ui-serif', 'Georgia', 'serif']`. Tokens are **not duplicated** — the config only references B's CSS custom properties.
-- `postcss.config.js` at repo root: `{ tailwindcss: {}, autoprefixer: {} }`.
-- `@tailwind base; @tailwind components; @tailwind utilities;` added to `client/styles.scss` right after the required `@use '@angular/material' as mat;` (Sass forbids `@use` after any other rule, so `@use` stays at the top; Tailwind directives sit above the token layer and the emitted CSS lets components override utilities via the `!important` bridge already present in the chrome layer).
-
-**Fonts self-hosted (client/assets/fonts/)**
-
-| File | Size (bytes) |
+| Wedge | Why competitors don't have it |
 |---|---|
-| `Inter-Variable-Latin.woff2` | 48,256 |
-| `Inter-Variable-LatinExt.woff2` | 85,068 |
-| `Hind-400-Latin.woff2` | 16,216 |
-| `Hind-500-Latin.woff2` | 16,788 |
-| `Hind-600-Latin.woff2` | 16,612 |
-| `Hind-400-Devanagari.woff2` | 74,936 |
-| `Hind-500-Devanagari.woff2` | 71,192 |
-| `Hind-600-Devanagari.woff2` | 71,512 |
-| `InstrumentSerif-400.woff2` | 21,032 |
-| `InstrumentSerif-400-Italic.woff2` | 22,128 |
+| Modern UI, keyboard-first | Marg still ships on CD; every rival has Windows-95 chrome |
+| WhatsApp bill send built-in | Not a single competitor page advertises it (Vyapar has it as generic SMB feature) |
+| HUID never paywalled, first-class | Munim gates HUID behind mid-tier; legally mandatory since Apr 2023 |
+| CSV migration IN and OUT | Nobody advertises it — anti-lock-in pitch to Marg-fatigued users |
 
-- Source: Fontsource CDN mirrors of the OFL-licensed Google Fonts originals.
-- `client/styles.scss` gained matching `@font-face` blocks with `font-display: swap` and `unicode-range` values split by Latin / Latin-Extended / Devanagari so browsers only fetch subsets they need.
-- `client/index.html` — removed Google Fonts `<link rel="preconnect">`, the CSS `<link>` for Inter/Hind/Instrument Serif, and the Material Icons `<link>`. Replaced with three local `<link rel="preload" as="font" type="font/woff2" ...>` tags for Inter Variable, Hind 400 Devanagari, and Instrument Serif 400.
-- `client/assets/partials/_themes.scss` — dropped its Google Fonts `@import url(...Inter...)` and switched the `body { font-family: ... }` fallback to `'Inter', 'Hind', system-ui, sans-serif`.
-- Parent `angular.json` already had `client/assets` on the build/test `assets` array, so no change needed there. Fonts are served at `/assets/fonts/*.woff2` and the served CSS + HTML contain **zero** references to `fonts.googleapis.com` (one remaining Google Fonts `@import` for Rajdhani lives in `client/app/modules/orders/components/print-invoice/print-invoice.component.scss` — that file is in Workstream D's list and was not touched).
+---
 
-**Spartan / helm primitives adopted**
+## 2. Design direction
 
-- **Login page** — inputs use `.hlm-input` (border, focus ring, invalid state, placeholder), submit CTA uses `.hlm-btn .hlm-btn-primary`, theme toggle uses `.hlm-btn-icon`. All are `@layer components` recipes composed from Tailwind utilities that reference Workstream B's tokens; login SCSS shrank from ~370 to ~280 lines.
-- **Navbar** — theme-toggle button uses `.hlm-btn-icon`; navbar SCSS shrank by ~30 lines. Sidebar mobile toggle button + pin toggle remain on the existing Bootstrap `.btn .nav-link` chrome — they're Bootstrap-driven, not Material.
-- **Dashboard** — **not touched.** The dashboard component (`client/app/modules/dashboard/components/main/**`) is in Workstream D's list and D had active uncommitted edits there during this pass. The dashboard already reads B's tokens end-to-end from the earlier reskin, so refactoring its FA icons to Lucide has been deferred. Recommend a follow-up pass once D's dashboard/orders/models work has landed.
+### The one big shift
+**Warm-neutral, editorial, keyboard-first.** Not slate-grey MDI, not fashion e-commerce. Linear's density and keyboard model, applied to a shop-counter workflow, in a champagne/ivory palette that flatters gold photography.
 
-**Icons swapped to Lucide (`@ng-icons/lucide`)**
+### Design system stack
 
-- `lucideSun` + `lucideMoon` — theme toggle button (login + navbar).
-- `lucideArrowRight` — login sign-in CTA affordance.
-- `lucideCircleAlert` — login form error banner.
-- `lucideMenu` — navbar sidebar toggle + pin toggle.
-- `lucideSearch` — provided but not yet rendered (declared for the upcoming search-input primitive; kept in the provider so `<ng-icon name="lucideSearch">` is one edit away).
-- Icons are provided via `provideIcons({...})` in each component's `viewProviders`, keeping tree-shaking honest.
+| Layer | Choice | Why |
+|---|---|---|
+| Component primitives | Replace Angular Material with **Tailwind + [Spartan/ng](https://www.spartan.ng/) (shadcn-for-Angular) + Radix Colors** | Material is 12 years of 2015 aesthetics. Spartan/ng = headless primitives we own. Radix Colors gives semantic 12-step light+dark. |
+| Type — Latin | **Inter Variable** with `font-feature-settings: "cv11", "ss03", "tnum"` | Purpose-built for dense UI. `tnum` non-negotiable for bill columns. |
+| Type — Devanagari | **Hind** or **Mukta** (metric-compatible with Inter) | Vanilla Inter clips Devanagari matras at line-height 1.2. |
+| Type — display | Serif for KPI values only — **Fraunces** or **Instrument Serif** | Only rate ticker + invoice total. |
+| Icons | **Lucide** via ng-icons | 1,747 icons, strict 2px stroke, tree-shakable |
+| Color | Ivory `oklch(97% 0.01 85)`, amber accent `oklch(72% 0.14 65)`, single deep neutral for text | Kills the Marg saturated-primary button soup |
+| Density | 32-36px table rows desktop, 40-48px touch; 13-14px body, 11-12px caption | POS convention (Shopify/Lightspeed/Toast) |
+| Motion | <300ms, ease-out, transform-origin from trigger, nothing decorative | Clerks on low-end hardware feel wasted frames |
+| Dark mode | Ship it, don't default it, honor OS preference | Long-session counter app |
 
-**Test result summary**
+### Screens that matter
 
-- `npx ng test --watch=false --browsers=ChromeHeadless` — **7 tests SUCCESS**, no new warnings introduced.
-- `ng serve --configuration=development --port=4201` — dev server up cleanly (verified after temporarily stashing Workstream D's WIP model + template edits, per the concurrency rule; the stash was popped and D's WIP has since been committed by D as `3275e63`). Sass @import deprecation warnings unchanged from baseline. Confirmed at runtime:
-  - `/styles.css` contains zero `fonts.googleapis.com` references.
-  - `/assets/fonts/Inter-Variable-Latin.woff2` (and siblings) return HTTP 200 with `Content-Type: font/woff2`.
-  - Served `index.html` contains only the three local `<link rel="preload">` font tags.
+1. **Cart / order builder** — 70% table (SKU/HUID • image • purity • net wt • rate • making • total), 30% totals stack, rate ticker on top, barcode scanner focus-anywhere, `Alt+W` grabs weight from scale, `⌘K` command palette (Phase 3).
+2. **Inventory** — portrait product thumbnails, grid ↔ table density toggle, sticky filter chips (purity/category/in-stock/HUID-present), owner sees cost overlay.
+3. **Dashboard** — kill 3D pie. One line chart, three KPI tiles with serif totals + tabular sub-values, top-products with thumbnails, live IBJA rate card.
+4. **Invoice print** — one CSS driving two templates: A4 GST (HSN 7113, CGST/SGST split, amount-in-words, e-invoice QR field) and 80mm thermal (`@page { size: 80mm auto }`).
+5. **Settings** — replace DB-connection-only page with shop identity, tax rates, invoice series, print prefs, gold-rate source, backup schedule, WhatsApp keys, RBAC users, hardware setup + test buttons.
 
-**Deferred / cannot verify inside this workstream**
+---
 
-- Full `npx ng build` from a fresh working tree currently fails on Workstream D's in-progress `client/app/modules/orders/components/print-invoice/print-invoice.component.html`, which references `product.SGST`, `product.CGST`, `product.discount`, `_InvoiceData?.totalSgst` etc. that D removed from the models but has not yet updated on the template. Those files are in D's list and I did not touch them. Once D commits the corresponding template edits, `ng build` should be green end-to-end.
-- Dashboard reskin (FA icons to Lucide, hand-rolled utility CSS to Tailwind) — **deferred** because `client/app/modules/dashboard/**` is in D's list.
-- Spartan `hlm-form-field` / `hlm-dialog` / `hlm-select` / `hlm-tabs` primitives are not adopted; the login form only needs input + button. Full-app Material-to-Spartan migration remains a later Phase 1 task, aligned with when customers/inventory/orders come off Material.
-- Rajdhani font Google Fonts `@import` in `print-invoice.component.scss` — pending, in D's scope.
+## 3. Feature gap (what's mandatory that we don't have)
 
-**Explicit files touched**
+Ordered by "kills the sale if absent":
 
-Inside the parent repo (branch `integration/modernization-2026-07-17`, commit `f700e09`):
-- `package.json`
-- `package-lock.json`
-- `tailwind.config.js` (new)
-- `postcss.config.js` (new)
+| # | Feature | Current | Notes |
+|---|---|---|---|
+| 1 | Karat/purity per product (22K/18K/14K + fineness 916/750/585) | Absent | Every price calc branches on this |
+| 2 | HUID, gross wt, net wt, stone wt per piece | Absent | BIS-mandatory on invoice since Apr 2023 |
+| 3 | Daily metal-rate table + rate-lock-on-bill-open | Absent | #1 cashier dispute source |
+| 4 | Making charges: flat / per-gram / % + wastage % | UI has flat "labour" only | Three billing modes coexist in market |
+| 5 | GST split 3% → 1.5% CGST + 1.5% SGST intra / 3% IGST inter + HSN 7113 | Stored as amount, no rate, no HSN | Won't clear a CA review |
+| 6 | Shop identity table (name, GSTIN, address, logo, invoice-series prefix) | Hard-coded in print-invoice.component.html | Every install needs this on day 1 |
+| 7 | Thermal 3" (80mm) invoice + A4 fallback | A4 only via ngx-print | Every shop has a thermal printer |
+| 8 | Barcode / HUID scanner input on cart | Absent | Manual 6-char HUID = #1 post-2023 complaint |
+| 9 | Weighing-scale integration (RS-232 + USB-HID) | Absent | Table stakes |
+| 10 | Old-gold exchange as first-class invoice line | Absent | Half of retail purchases involve exchange |
+| 11 | Saving-scheme ledger (Golden Harvest style) | Absent | Owner's recurring-revenue lever |
+| 12 | Karigar (goldsmith) job-work register | Absent | Owner's monthly reconciliation pain |
+| 13 | Reports: day-book, GSTR-1 JSON, stock by purity, karigar ledger | Absent | CA handoff |
+| 14 | WhatsApp bill send (Meta Business API + PDF) | Absent | Killer demo feature |
+| 15 | CSV / Tally XML export (IN and OUT) | Absent | Migration + CA handoff |
+| 16 | RBAC — admin sees costs, cashier doesn't | Display-only (`type` in sidebar) | Owners paranoid about cashiers |
+| 17 | Backup + restore (encrypted mysqldump) | Absent | Trust builder |
 
-Inside `client/` submodule (branch `redesign/ui-modernization`, commit `f9b648c`):
-- `styles.scss`
-- `index.html`
-- `assets/partials/_themes.scss`
-- `assets/fonts/Inter-Variable-Latin.woff2` (new)
-- `assets/fonts/Inter-Variable-LatinExt.woff2` (new)
-- `assets/fonts/Hind-400-Latin.woff2` (new)
-- `assets/fonts/Hind-500-Latin.woff2` (new)
-- `assets/fonts/Hind-600-Latin.woff2` (new)
-- `assets/fonts/Hind-400-Devanagari.woff2` (new)
-- `assets/fonts/Hind-500-Devanagari.woff2` (new)
-- `assets/fonts/Hind-600-Devanagari.woff2` (new)
-- `assets/fonts/InstrumentSerif-400.woff2` (new)
-- `assets/fonts/InstrumentSerif-400-Italic.woff2` (new)
-- `app/modules/login/components/login.component.{ts,html,scss}`
-- `app/shared/components/navbar/navbar.component.{ts,html,scss}`
+---
 
-The parent submodule-pointer bump is intentionally **not** included; the reconciler picks up the client commit at integration time per the workstream contract.
+## 4. Phased roadmap
+
+Solo dev, evenings/weekends. Compress if full-time.
+
+### Phase 1 — First pilot shop (4-6 weeks)
+
+Goal: a real jeweller can run a full day of billing with it.
+
+**Schema rebuild** (destructive — dummy data only). New / rebuilt tables: `ShopSettings`, `Purities`, `TaxSlabs`, `MetalRates`, `OldGoldReceipts`, `AuditLog`, `InvoiceLineItems` (replaces Invoice_Products_Mapping), `Products` (rebuilt with sku/huid/purityCode/gross-net-stone-wt/making mode+value/wastage/cost/tag price), extended `Customers` (gstin/pan/remarks/creditBalance), extended `Invoices` (rateSnapshot JSON, oldGoldCreditAmount, hsn, placeOfSupply, invoiceNumber, isEinvoice, irn, qrCodeData), extended `Payments` (refNumber/reconciledAt), extended `Users` (permissions/lastLoginAt). Stubs (DDL only, no procs/UI): `SavingSchemes`, `SavingSchemeInstallments`, `KarigarJobCards`, `KarigarLedger`, `StockMovements`.
+
+**Cart engine rewrite** — per-line: `metal = ratePerGram × netWeight`, `wastage = wastage% × metal`, `making = f(makingMode, makingValue, netWeight, metal)` (flat/perGram/percent), `stones = stoneCharges`, `taxable = metal + wastage + making + stones − discount`, per-line GST split (CGST+SGST intra / IGST inter driven by ShopSettings placeOfSupply). Grand total = Σ (taxable + tax) − roundOff.
+
+**Design system foundation** — Tailwind + Spartan/ng + Lucide + Inter/Hind + Radix Colors installed. Global tokens. Reskin login + dashboard end-to-end as the pattern.
+
+### Phase 2 — Competitive with Marg (6-8 weeks)
+
+- HUID + barcode scanner input (keyboard-wedge focus).
+- Weighing-scale integration via `serialport` (RS-232) and USB-HID.
+- Old-gold exchange UI on cart.
+- Saving-scheme module (enroll, receipt, maturity, redemption).
+- Karigar module (issue, receive, wastage ledger).
+- Reports v1: day-book, sales register, stock summary by purity, GSTR-1 JSON.
+- RBAC (route guards + proc-level type check).
+- A4 GST invoice rebuild with HSN, amount-in-words, e-invoice QR field.
+- Backup + restore (mysqldump + AES-encrypted archive).
+
+### Phase 3 — Growth wedges (ongoing)
+
+- WhatsApp Business API — bill send + saving-scheme reminders + festival campaigns. **Meta verification paperwork must start on day 1 of P3 — 2-6 week lead time.**
+- CSV migration importer (Marg / Tally / raw CSV → schema).
+- Tally XML export (Voucher + Ledger masters).
+- IBJA rate auto-fetch (2×/day scrape or paid feed).
+- Hindi/Gujarati/Marathi UI via Angular `i18n`.
+- Read-only Android companion via Capacitor.
+- Command palette `⌘K` with breadcrumbs (Rauno Freiberg pattern).
+- Repair / job-ticket module.
+
+---
+
+## 5. Non-goals for v1
+
+- No cloud sync. Local-first is the wedge; the moment we add cloud we're in Marg's world of "license suspended, pay AMC".
+- No e-way bill / IRP live integration until a pilot crosses ₹5cr turnover. Field-ready, integration-deferred.
+- No RFID. Asked-for-loudly, rarely-used.
+- No multi-branch / chain features. Different product, different price band.
+- No fancy motion library.
+
+---
+
+## 6. Risks
+
+- **HUID exemption at ≤₹40L turnover** — widely cited, not verified against 2026 BIS notification. Confirm with a jeweller's CA before making HUID mandatory-in-schema.
+- **Old-gold GST treatment** (RCM vs Rule 32(5) margin scheme) — conflicting AARs. Ship as config toggle, not hard-coded policy.
+- **WhatsApp Business API** — Meta business verification + template approval + green-tick. 2-6 week lead time.
+- **Scale firmware quirks** — every RS-232 scale has its own protocol. Ship with Essae + Contech + one HID model tested; add-more-on-request.
+- **Sales channel.** Marg wins via dealers. Direct DTC + local Facebook/YouTube demos is the default; a "certified installer" model in one city is a Phase-2 experiment. This decides P3 feature order.
+
+---
+
+## 7. Phase 1 execution log
+
+### 7.1 Workstream A — status
+
+**Landed 2026-07-20, parent commit `8b54afd`.** Backend schema + cart engine rebuild.
+
+- 20 tables under `Scripts/Tables/`: 7 new core (ShopSettings, Purities, TaxSlabs, MetalRates, OldGoldReceipts, AuditLog, InvoiceLineItems), 5 P2 DDL stubs (SavingSchemes, SavingSchemeInstallments, KarigarJobCards, KarigarLedger, StockMovements), 1 rebuilt (Products), 4 extended (Customers, Invoices, Payments, Users). `Invoice_Products_Mapping` deleted. V001 index migrations deleted; indexes baked into new DDL. `Scripts/Migrations/` retained with a README stating it's post-launch-only.
+- `docker/init/01-init-db.sh` TABLES array reordered dependency-safe.
+- 22 stored procedures rewritten, 6 new (`get_current_metal_rates`, `save_metal_rates`, `get_shop_settings`, `save_shop_settings`, `get_purities`, `get_tax_slabs`). OR/AND precedence bug in search WHEREs fixed as part of the rewrite.
+- Seed data rewritten: Radiance Jewellers shop identity, invoice prefix `RAD/2026/` counter 9 after seed, 4 users, 20 customers (2 B2B with GSTIN/PAN), 43 products with SKU/HUID, 360 metal-rate rows (30 days × 2 sessions × 6 purities), 8 invoices with 10 line items, 8 payments, 1 old-gold receipt.
+- Backend TS: `Backend/Orders/cart-totals.ts` (per-line + per-cart totals engine); `Backend/Shared/metal-rates.service.ts`, `Backend/Shared/shop-settings.service.ts`; interfaces under `Backend/Shared/interfaces/`. Wired through `Backend/Orders/db-orders.service.ts`, `Backend/Inventory/db-inventory.service.ts`, `Backend/Customers/db-customers.service.ts`.
+- IPC in `src-electron/main.js` + `src-electron/preload.js`: new channels `metalRates.getCurrent`, `metalRates.save`, `shopSettings.get`, `shopSettings.save`. Security posture preserved (`contextIsolation: true`, `nodeIntegration: false`).
+- `docker compose down -v && docker compose up -d` runs green; smoke-tested `save_order` (writes invoice + increments counter + marks products sold), `record_payment` (flips `isPaymentDone`), `cancel_order` (unwinds line items + stamps reason), and the two new metal-rate procs.
+- Interfaces list handed to Workstream D was: `client/app/interfaces/{Inventory,Customers,Orders}/*-service-interface.ts` and models under `client/app/modules/{customers,inventory,orders}/models/`, plus new services mirroring `metal-rates.service.ts` and `shop-settings.service.ts` and type mirrors of `Backend/Shared/interfaces/*` under `client/app/interfaces/Shared/`.
+
+### 7.2 Workstream B — status
+
+**Landed 2026-07-20, submodule commits on `redesign/ui-modernization` (`c46c943` / `705f64a` / `c4a4384` / `e636161`); submodule pointer bumped on parent as `0942c30`.** Design-system foundation and initial reskin.
+
+- Radix-based token system in `client/styles.scss` — Sand + Amber + status scales as CSS vars; semantic tokens (`--color-bg`, `--color-fg`, `--color-accent`, `--color-border`, `--color-success/warning/danger` each with `-hover`/`-fg`/`-subtle`), shadow + radius scales.
+- Dark theme swapped via `html[data-theme="dark"]` with pre-hydration inline script in `client/index.html`; first paint is theme-correct.
+- `ThemeService` at `client/app/shared/services/theme.service.ts` — signal-based, persists to `localStorage['jsms.theme']`, honors `prefers-color-scheme` on first visit.
+- Fonts (this pass): Google Fonts via preconnect + preload; C swapped these to self-hosted WOFF2 (see 7.3).
+- Login page reskin — warm-ivory two-panel layout, single amber CTA, Reactive Forms, corner theme toggle.
+- Dashboard rebuild — 3D pie killed; single area-fill line chart (Chart.js 4, redraws on theme swap), three KPI tiles with serif totals + tabular-nums deltas, top-products list with thumbnails, recent-orders table. Live-rate card placeholder pending D's wiring.
+- Navbar reskin — circular sun/moon toggle, Instrument Serif brand wordmark.
+- Sidebar bridged via token overrides in `styles.scss` (legacy Lightning Admin partial not yet rewritten).
+- `ng build --configuration=development` and `ng test` (7/7) both green at close of B.
+- **Deferred out of B:** Tailwind + Spartan/ng + `@ng-icons/lucide` install (blocked on parent `package.json` access during concurrent WS A run), self-hosted WOFF2 (blocked on parent `angular.json` assets path). Both picked up by Workstream C.
+
+### 7.3 Workstream C — status
+
+**Landed 2026-07-20, parent commits `f700e09` + `b10424b`; submodule commit `f9b648c` on `redesign/ui-modernization`.** Design-system stack installation + font self-hosting + login/navbar refactor onto Spartan/brain + Lucide.
+
+Packages (parent `package.json`):
+
+- `tailwindcss@^3.4.19` + `postcss@^8.5.20` + `autoprefixer@^10.5.4` (v3 chosen — v4 has Angular integration friction and Spartan's Angular-19-compatible alphas peer on `>=3.3`).
+- `tailwindcss-animate@^1.0.7`, `tailwind-merge@^2.6.1`, `clsx@^2.1.1`, `class-variance-authority@^0.7.1`.
+- `@spartan-ng/brain@0.0.1-alpha.563` — **pinned**, the last version whose peer deps accept `@angular/core ^19`; alpha.564+ requires Angular 20+. Spartan's helm styling packages are deprecated in favor of a CLI generator; hand-rolled equivalent recipes live as `@layer components` in `client/styles.scss` (`.hlm-btn`, `.hlm-btn-primary`, `.hlm-btn-ghost`, `.hlm-btn-icon`, `.hlm-input`).
+- `@ng-icons/core@^31.4.0` + `@ng-icons/lucide@^31.4.0` — 31.x is the last minor supporting `@angular/core >=18`.
+
+Tailwind config:
+
+- `tailwind.config.js` + `postcss.config.js` at repo root. Content globs: `./client/index.html`, `./client/**/*.{html,ts,scss}`. `darkMode: ['selector', 'html[data-theme="dark"]']`.
+- Theme extension references B's semantic tokens via `var(--color-*)` — colors, radius, shadow, ring all point at the tokens; **no duplication**.
+- `@tailwind base/components/utilities` added to `client/styles.scss` right after the required `@use '@angular/material' as mat;`.
+
+Fonts self-hosted under `client/assets/fonts/` (10 WOFF2 files, ~440KB total): Inter Variable Latin + LatinExt, Hind 400/500/600 Latin + Devanagari, Instrument Serif 400 upright + italic. `@font-face` blocks with `font-display: swap` and `unicode-range` splits so browsers fetch only the subsets they need. Removed Google Fonts `<link rel="preconnect">` + CSS `<link>` + Material Icons `<link>` from `client/index.html`; replaced with three local `<link rel="preload">` tags. Confirmed at runtime: zero `fonts.googleapis.com` references in served CSS/HTML, local `.woff2` return HTTP 200 with `Content-Type: font/woff2`.
+
+Spartan/brain + helm primitives adopted:
+
+- **Login** — inputs use `.hlm-input`, submit CTA uses `.hlm-btn .hlm-btn-primary`, theme toggle uses `.hlm-btn-icon`. Login SCSS shrank ~370 → ~280 lines.
+- **Navbar** — theme-toggle uses `.hlm-btn-icon`; navbar SCSS shrank ~30 lines.
+- **Dashboard** — deliberately not touched (in D's list at time of C's run).
+
+Icons swapped to Lucide via `@ng-icons/lucide`:
+
+- `lucideSun` + `lucideMoon` (theme toggles).
+- `lucideArrowRight` (login CTA).
+- `lucideCircleAlert` (login error banner).
+- `lucideMenu` (navbar toggles).
+- `lucideSearch` (provider-registered for future search primitive).
+
+Verification at close of C: `ng test --watch=false --browsers=ChromeHeadless` 7/7 green. `ng serve` on :4201 clean, no `fonts.googleapis.com` in `/styles.css`, `/assets/fonts/*.woff2` return HTTP 200. Full `ng build` at close of C was still failing on D's in-progress template files — resolved by D's `8e7e95a`.
+
+Deferred out of C:
+
+- Dashboard FA-to-Lucide swap (in D's list at run time).
+- Spartan `hlm-form-field` / `hlm-dialog` / `hlm-select` primitives — pending full Material-to-Spartan migration (later Phase 1).
+- Rajdhani Google Fonts `@import` in `print-invoice.component.scss` — pending, in D's scope (resolved separately).
+
+### 7.4 Workstream D — status
+
+**Landed 2026-07-20, submodule commits `ed52514` / `3275e63` / `11a9a75` / `8e7e95a` on `redesign/ui-modernization`.** Frontend interface + service + page sync to A's new backend shapes, cart-engine wiring end-to-end.
+
+- **Interfaces mirrored** — `client/app/interfaces/Shared/{cart,metal-rate,shop-settings,product,purity,tax-slab}.ts` (new) mirror A's `Backend/Shared/interfaces/*` shapes. Service-interface files updated: `client/app/interfaces/Inventory/inventory-service-interface.ts`, `client/app/interfaces/Customers/customer-service-interface.ts`, `client/app/interfaces/Orders/orders-service-interface.ts`.
+- **Models synced** — `client/app/modules/customers/models/`, `client/app/modules/inventory/models/`, `client/app/modules/orders/models/` all updated to the new field sets. Old `productWeight` field removed; new fields (sku, huid, purityCode, gross/net/stone weight, stone charges, makingMode, makingValue, wastagePercent, cost/tag price, hsnCode) flow through.
+- **Angular services** — customer/inventory/order services rerouted through a unified `DbBridge` (commit `11a9a75`). Two new services: `client/app/shared/services/MetalRates/metal-rates.service.ts` (methods `getCurrent()` + `save()`) and `client/app/shared/services/ShopSettings/shop-settings.service.ts` (methods `get()` + `save()`). Both signal-based; consume the new IPC channels A exposed on `window.electronAPI.metalRates.*` and `window.electronAPI.shopSettings.*`.
+- **Customer pages** — add-customer form + view-details form gained state, stateCode, GSTIN, PAN, remarks inside an "Additional details" accordion; view-details renders creditBalance read-only; customer-orders table maps to invoiceNumber + grandTotal.
+- **Inventory pages** — available-products table columns rebuilt around SKU, HUID, purityCode, netWeight, tagPrice (drops productWeight + productGuid columns). Add-product + product-details forms carry the full new field set (sku, huid, purity dropdown from `get_purities`, hsnCode, gross/net/stone weight, stone charges, makingMode + makingValue, wastage %, cost/tag price).
+- **Order pages** — orders list column set switches from "Id" to "invoiceNumber" and maps the new customerDetails JSON shape returned by `get_all_orders`. Order details page shows `invoiceNumber` in the header and breaks down `subTotalTaxable`, GST split, making/wastage/stone charges, old-gold credit, round-off, `cancelReason`. Order-products-details table displays the new per-line fields (metalValue, makingCharge, wastageCharge, stoneCharge, discountAmount, tax split, lineTotal). Order-payments form gains `refNumber` and passes it to `record_payment`.
+- **Print-invoice** — template rewritten around the new line-item + totals shape; kept minimal per Phase 1 scope (full A4 GST + 80mm thermal rebuild is Phase 1 later).
+- **Prepare-order / create-invoice** — the biggest churn. Rebuilt end-to-end: locks rates from `get_current_metal_rates`, hydrates tax slabs from `get_tax_slabs`, runs the client-side cart-totals engine on every field change, saves through `save_order` via the new `SaveOrderPayload` contract. A jeweller can now add a product → see calculated totals → hit save → get a valid invoice row.
+- **Dashboard** — live-rate card wired to `MetalRatesService.getCurrent()`. Formats INR with tabular-nums; skeleton + empty states added. Recent-orders row bindings use `grandTotal + invoiceNumber + totalLineItems` with backward-compatible aliases.
+- **Cart sidebar shared component** — renders SKU / HUID / purity / net weight instead of the removed `productWeight`/subCategory-only surface.
+
+**Explicitly not built (Phase 1 later or P2 scope):** credit-balance write UI on customers, old-gold exchange UI on cart, saving-scheme UI, full A4 GST + 80mm thermal invoice rebuild.
+
+---
+
+## 8. Phase 1 close — verification and outstanding
+
+_Filled in during reconciliation at close of Phase 1._
