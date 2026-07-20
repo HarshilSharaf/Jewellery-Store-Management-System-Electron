@@ -2434,3 +2434,11 @@ _TBD_
 ### 18.2 Workstream AA — status
 
 _TBD_
+
+### 18.3 Workstream BB — status (chart + large-screen responsive)
+
+_TBD (runs in parallel with Z — targets two user-reported bugs)_
+
+### 18.4 Workstream CC — status (demo-grade seed expansion)
+
+_TBD (runs in parallel with Z and BB — expands seed for client demos)_
