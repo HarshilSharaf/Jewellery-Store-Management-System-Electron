@@ -2897,4 +2897,86 @@ Green. `docker logs jewellery-store-db` shows the full init sequence (`Running T
 
 ### 20.1 Workstream DD — status
 
-_TBD_
+**Executed 2026-07-21 on submodule branch `redesign/ui-modernization`.** Scope was reduced to two fixes; the two SweetAlert2-modal items were split off to a dedicated follow-on workstream that will REPLACE SweetAlert2 with an in-house minimal dialog primitive.
+
+**Commit trail (submodule, in order):**
+
+- `54f7ffe` — `fix(tally): receipt party ledger + Jewellery Composite stock item + voucher GUIDs`
+- `e7d2bfb` — `docs(reports): Tally import setup caption on day-book + sales-register`
+- `86266dc` — `fix(reports): escape @ literal in Tally setup caption for Angular 19 compiler` (hotfix — Angular 19 treats bare `@` as a control-flow prefix, so `CGST @ 1.5%` needed `&#64;`)
+- `7b8e806` — `fix(repair): declutter detail page with 2-col shell + consolidated header + overflow menu`
+
+Not pushed. Parent submodule pointer not bumped.
+
+#### Fix 1 — repair-detail declutter
+
+**Before.** Header packed the back arrow, serif ticket number, meta strip (customer · date · status chip), and a 4-icon action cluster (advance / karigar / decline / delete) into a single dense row. Party section rendered `avatar + 4 vertical text lines` (name / phone / email / received-by-user). Item section stacked photo, description, weight vertically with no right-rail balance. Estimates + Karigar-link sections stacked below with no visual hierarchy.
+
+**After.**
+
+- **Two-column shell.** Reuses H's `.detail-shell` recipe from `styles.scss` — same visual grammar as customer / product / karigar detail pages. `minmax(0, 3fr) minmax(0, 2fr)` on desktop, single-column below 1100px, side rail pinned to `380px` above 1800px.
+- **Header consolidated into two rows.**
+  - Row 1: back arrow · serif ticket number · **primary "Mark in progress / Mark ready / Settle & deliver" button** (amber-accent, only when `canAdvance()`) · overflow ellipsis.
+  - Row 2: muted 12px meta strip — customer name · date · status chip. Left-padded to align under the title.
+- **Overflow menu** — hand-rolled dropdown (`lucideEllipsisVertical`, `@ViewChild` anchor ref, `@HostListener` for `document:click` + `document:keydown.escape`). No new dependency. Houses: Link karigar, Decline (only when `canDecline()`), Delete (admin-only).
+- **Party block** — avatar + name + phone as two lines; email and received-by-user collapse into a single muted meta line only when non-null (never dash-only rows).
+- **Item block** — `grid-template-columns: minmax(0, 240px) minmax(0, 1fr)`. Photo left (`aspect-square`); description + `field-grid` (weight, estimated return, delivered, payment) right. Empty photo state = `lucidePackage` at 40px in a `bg-subtle` tile. Notes as an italic muted block.
+- **Right sidebar** — compact KPI pair (Days open + Estimated) via `side-row` + `.kpi-card--compact`; a full-width Actual charge KPI (only when settled); a Quick actions panel (Link/Change karigar · Send WhatsApp · Print receipt with P3 badge).
+- **Section spacing** — `gap: 20px` between top-level `.detail-section` blocks; all section titles use `.detail-section__title` (11px uppercase muted).
+
+**Files touched.**
+
+- `client/app/modules/repair/components/ticket-detail-page/ticket-detail-page.component.ts` (added `menuOpen` signal, `@ViewChild('menuAnchor')`, `@HostListener` document-click + escape, `toggleMenu / closeMenu`, imported `lucideEllipsisVertical`, `lucidePackage`, `lucideX`).
+- `client/app/modules/repair/components/ticket-detail-page/ticket-detail-page.component.html` (full rewrite: `.repair-head` two-row + overflow-menu, `.detail-shell` wrapper, restructured party / item / karigar sections, right sidebar with reused recipes).
+- `client/app/modules/repair/components/ticket-detail-page/ticket-detail-page.component.scss` (added `.repair-head`, `.repair-party`, `.repair-item`, `.repair-karigar`, `.side-row`, `.side-actions`, `.side-action` local styles; removed old `.repair-detail__layout` / `__side` / `__grid` scaffolding that duplicated the shared `.detail-shell` recipe).
+
+**Judgment calls.**
+
+- Kept the three slide-in panels (advance, karigar link, WhatsApp) verbatim in HTML — brief said only the invocation UX changes. Swapped the close-button icon from `lucideCircleAlert` (which was semantically wrong; it was an alert icon being used as a close X) to `lucideX`.
+- Print-ticket-receipt is a stub button that fires a SweetAlert2 info toast; deferred proper receipt printing as a follow-up (labeled with a "P3" badge on the button so it's transparent).
+- Overflow menu closes on document click via `HostListener`; clicking the toggle button uses `$event.stopPropagation()` to avoid the same click closing it immediately.
+- Left the `Send WhatsApp update` and `Link karigar` buttons in the sidebar Quick actions panel even though Link karigar is also in the overflow menu — WhatsApp is not in the overflow (it's forward-motion, not admin), and Link karigar is duplicated intentionally because it's a high-frequency workflow that deserves a one-click sidebar path.
+
+**Expected visual delta.** A drastically calmer page: one wide title with a single decisive amber action button, everything secondary tucked into an ellipsis; the two-column split moves KPIs and quick actions to a dedicated rail so the body focuses on the item and party facts; empty fields no longer render dashes.
+
+#### Fix 2 — Tally XML
+
+**Root causes addressed** (all confirmed by code inspection of `client/app/shared/utils/tally-xml.ts`):
+
+1. **Receipt vouchers used the payment method as `<PARTYLEDGERNAME>`.** Tally expects the party (customer/debtor) ledger there, not the payment method. Both `ALLLEDGERENTRIES.LIST` entries in each receipt also referenced the payment method as one leg, and `Sundry Debtors` as the counter — which meant the accrual side had no per-customer ledger detail. Since the day-book aggregates by mode + day with no per-customer breakdown, the fix routes every aggregate receipt through a synthetic `"Cash Sales"` party ledger. The counter leg now correctly credits the payment mode ledger (`Cash` / `Bank Account` / `UPI Suspense` / `Card Suspense` / `Online Suspense`) via the `ALLLEDGERENTRIES.LIST` block.
+2. **Sales vouchers used `<STOCKITEMNAME>HSN 7113 - B2B</STOCKITEMNAME>`** — a synthetic composite string that no Tally company will have under its stock master. Tally rejects unknown stock items ("Stock Item does not exist"). Replaced with a single generic `"Jewellery — Composite"` stock item that users create once under a `Jewellery` stock group.
+3. **No `<GUID>` on any voucher** → re-imports create duplicates instead of updating in place. Added deterministic per-voucher GUIDs: sales = `tally-sales-<invoice-slug>`, receipts = `tally-receipt-<yyyymmdd>-<ledger-slug>`. Slugification: lowercase + collapse non-alphanumeric to hyphens (e.g. "UPI Suspense" → `upi-suspense`, "INV/001" → `inv-001`).
+4. **Empty `<PARTYNAME></PARTYNAME>` and `<PARTYGSTIN></PARTYGSTIN>`** for null customers. Now: `PARTYNAME` and `PARTYLEDGERNAME` fall back to `"Cash Sales"` when `customerName` is null/empty; `PARTYGSTIN` is omitted entirely (not left as an empty tag) when no GSTIN is on file.
+5. **Ledger name typo `Sales - Jewellery`** with a hyphen — changed to `Sales — Jewellery` (em dash) to match the setup caption's spelling.
+
+**Spec updates.** 32 → 37 (added 5, kept 4 previously green).
+
+New specs in `client/app/shared/utils/tally-xml.spec.ts`:
+
+- `buildDayBookXml … routes receipt vouchers through Cash Sales party ledger` — asserts `<PARTYLEDGERNAME>Cash Sales</PARTYLEDGERNAME>` present and `<PARTYLEDGERNAME>Cash</PARTYLEDGERNAME>` / `<PARTYLEDGERNAME>UPI Suspense</PARTYLEDGERNAME>` absent.
+- `buildDayBookXml … emits a <GUID> tag on every receipt voucher` — asserts GUID count equals voucher count, and specific GUIDs like `tally-receipt-20260720-cash` and `tally-receipt-20260720-upi-suspense` are present.
+- `buildSalesRegisterXml … uses "Jewellery — Composite" as the stock item name` — asserts the exported constant `TALLY_STOCK_ITEM` is used and the old synthetic `HSN 7113 - B2B` is gone.
+- `buildSalesRegisterXml … emits a <GUID> tag on every sales voucher` — asserts GUID count = voucher count, plus specific slugified GUIDs.
+- `buildSalesRegisterXml … falls back to Cash Sales when customerName is null` — asserts `<PARTYNAME>Cash Sales</PARTYNAME>`, `<PARTYLEDGERNAME>Cash Sales</PARTYLEDGERNAME>`, no empty `<PARTYNAME>` / `<PARTYGSTIN>` tags, and no bare `<PARTYGSTIN>` when GSTIN is null.
+
+Updated to still pass: existing `escapeXml`, `buildDayBookXml … wraps output`, `buildDayBookXml … emits one <VOUCHER> per non-zero payment bucket`, `buildSalesRegisterXml … emits one <VOUCHER> per invoice row and escapes special characters`, `buildSalesRegisterXml … formats currency amounts with two decimals`.
+
+**Captions added.** Collapsible `<details>` box (defaults closed so the table doesn't get pushed down) below the toolbar on both `day-book.component.html` and `sales-register.component.html`. Text explains one-time Tally Prime master setup: full ledger list, Stock Group `Jewellery`, Stock Item `Jewellery — Composite`, import path `Gateway of Tally → Import Data → Vouchers`. Styling is component-scoped in each report's SCSS (kept out of `styles.scss` per the rules); the two identical blocks are ~65 lines each — the tradeoff is acceptable since this is a report-specific onboarding hint and no other page needs the recipe.
+
+#### Test + build results
+
+- `npx ng test --watch=false --browsers=ChromeHeadless` — **37 / 37 SUCCESS** (was 32; added 5 new Tally specs).
+- `npx ng build --configuration=development` — PASS (10.5s).
+- `npx ng build --configuration=production` — PASS (16.1s). Only pre-existing warnings (initial-bundle budget +127 kB, four per-component style-budget warnings, two sweetalert2/dayjs ESM bailouts — all unchanged from Phase 3.6's reconciled state).
+- Repair-detail changes lint clean; the two prod-mode component-scoped SCSS files remain well under the 12 kB per-component error threshold.
+
+#### Deferred with reasoning
+
+1. **SweetAlert2 top-padding + dark-mode color-mismatch (originally items 3 + 4 in the P3.7 kickoff plan)** — explicitly out of scope this session. A follow-on workstream will REPLACE SweetAlert2 entirely with an in-house minimal dialog primitive rather than patching its stylesheets. DD did not touch any `.swal2-*` selectors, did not edit `styles.scss` for modal styling, and left the four SweetAlert2 call sites in the repair detail (`decline`, `deleteTicket`, `submitAdvance` toasts, `submitWhatsapp` errors) as-is.
+2. **Live Tally Prime testing.** The environment cannot exercise a real Tally Prime import. The XML now follows Tally's documented voucher-import schema with the four confirmed root causes addressed. If the user reports a specific error message from Tally after they test, that will inform the next fix.
+3. **Ticket receipt printing.** The `printStub()` handler still fires a SweetAlert2 info toast; wiring a proper printer flow (thermal receipt template for repairs, similar to the invoice print flow) is Phase-3 followup work. The sidebar button carries a `P3` badge so it's transparent.
+4. **`Bootstrap grid remnants or hard-coded margins`** — none were found in the repair-detail template; the previous version was already Tailwind + component SCSS. The declutter was pure layout restructure, not a de-Bootstrap pass.
+5. **Overflow-menu keyboard arrow navigation.** The dropdown supports Escape-to-close and click-to-close; full arrow-key focus roving between menu items would require additional focus management and was left off scope — the three items are all clickable and Tab-reachable individually.
+
+**Ready for pilot demo** once (a) the follow-on SweetAlert2 replacement workstream ships and (b) a user with Tally Prime confirms the receipt + sales voucher imports round-trip clean.
+
