@@ -1326,3 +1326,48 @@ Folded into 12.4. See "RBAC coverage summary" above.
 - Package the `mysqldump` / `mysql` binaries inside the Electron resources folder for Windows so users don't need MySQL client tools on PATH.
 
 **Phase 3 unblocked.** Every Phase 2 wedge — hardware, old-gold, saving-scheme, karigar, reports, backup, RBAC — is shippable. What's left before a Marg-style side-by-side demo is polish (audit log viewer, real receipt-print, forfeit-reason form) and the P3 growth wedges (WhatsApp, IBJA fetch, migration in/out, i18n).
+
+---
+
+## 14. Phase 3 — growth wedges
+
+**Kicked off 2026-07-21.** Six of the seven P3 items attempted this session in parallel:
+
+1. **Command palette** — `⌘K` / `Ctrl+K` global palette with breadcrumbs and typeahead over navigation + quick-actions. NN/g accelerator rule: every palette action already exists as a visible button.
+2. **IBJA rate auto-fetch** — twice-daily scrape of ibjarates.com AM/PM rates into `MetalRates` via an Electron main-process cron. Manual entry stays available as fallback.
+3. **Repair / job-ticket module** — new feature module for pieces dropped off for repair. Schema table + SPs (destructive rebuild per data policy) + UI list/detail/create.
+4. **Migration IN + OUT** — CSV importer (customers/products/rates) + CSV exporter for the same. Tally XML export for daybook + sales register.
+5. **WhatsApp bill send** — code path + settings tab only. Meta Cloud API template send + "Send via WhatsApp" button on order details. **Won't actually deliver messages** until Meta business verification is complete (2-6 week external lead time, must be started separately).
+6. **Hindi + Gujarati + Marathi i18n scaffold** — Angular i18n framework across the whole app, top ~200 phrases translated. Rest fall back to English initially.
+
+**Explicitly not this session:** Android read-only companion (needs sync-with-desktop-MySQL design that's a session on its own).
+
+**Execution.** Sequential P-style backend pass first (repair SPs + WhatsApp send-log + IBJA cron main-process wiring), then parallel UI + client work. Non-negotiables carried forward: destructive data policy, design-system continuity (workstream-labeled `styles.scss` blocks), Tailwind + Spartan + Radix + Lucide + Inter/Hind/Instrument Serif.
+
+**Workstreams:**
+
+- **P** — backend foundation (repair schema + SPs; WhatsApp send-log table + SPs; IBJA cron + snapshot audit; Angular i18n build config prerequisites). Sequential; blocks S. Q and R can start alongside P.
+- **Q** — command palette (all client-side, zero backend dependency).
+- **R** — migration IN/OUT + Tally XML export (backend + UI both, self-contained).
+- **S** — repair module UI + WhatsApp bill-send UI (both depend on P).
+- **T** — Hindi/Gujarati/Marathi i18n scaffolding + top-200 translations. Runs late so i18n tags land on stable templates.
+
+### 14.1 Workstream P — status
+
+_TBD_
+
+### 14.2 Workstream Q — status
+
+_TBD_
+
+### 14.3 Workstream R — status
+
+_TBD_
+
+### 14.4 Workstream S — status
+
+_TBD_
+
+### 14.5 Workstream T — status
+
+_TBD_
