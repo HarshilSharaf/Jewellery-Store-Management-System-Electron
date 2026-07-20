@@ -1358,7 +1358,87 @@ _TBD_
 
 ### 14.2 Workstream Q — status
 
-_TBD_
+**Landed 2026-07-20 on submodule branch `redesign/ui-modernization`.** Global `⌘K` / `Ctrl+K` command palette. All client-side, zero backend dependency, no new npm packages. Parent-repo submodule pointer intentionally not bumped (per rules).
+
+**Files added (submodule):**
+
+- `client/app/shared/components/command-palette/command-palette.service.ts` — owns the `isOpen` signal + a reserved `actions` slot for future contributors; open / close / toggle API.
+- `client/app/shared/components/command-palette/command-palette.component.ts` — standalone component. Owns the global `@HostListener('window:keydown.control.k' | 'meta.k')`, breadcrumb sub-palette stack, active-row `activeIndex` signal, fuzzy match scorer, and three sub-palette forms (add-customer / enroll-scheme / lock-rate).
+- `client/app/shared/components/command-palette/command-palette.component.html` — Angular template. Root list groups three sections; sub-palettes render inline based on `currentSub()`.
+- `client/app/shared/components/command-palette/command-palette.component.scss` — component-scoped form + breadcrumb + close/back button styles (the row/section chrome lives in the shared recipe block).
+- `client/app/shared/components/command-palette/command-palette.component.spec.ts` — 3 new specs (substring-vs-subsequence + unmatched-char, case-insensitive keyword hit, service open/close/toggle).
+
+**Files touched (mount + trigger wiring only):**
+
+- `client/app/shared/components/app-shell/app-shell.component.{ts,html}` — added `CommandPaletteComponent` to `imports` and rendered `<app-command-palette>` at the root of the shell template. No layout restructuring.
+- `client/app/shared/components/app-shell/top-bar.component.{ts,html,scss}` — the existing search input became a palette-trigger button; on click or focus it calls `CommandPaletteService.open()`. Added a visible `<kbd>Ctrl+K</kbd>` / `<kbd>⌘K</kbd>` affordance to the right of the input. Removed the local `Ctrl+K` handler from top-bar (the palette component now owns the global shortcut).
+- `client/styles.scss` — appended `// Workstream Q shared recipes (Command palette)` block at the very bottom (after the P/N/M/L/K/A/B..J blocks). Adds: `.cp-backdrop`, `.cp-panel`, `.cp-search-row`, `.cp-search-input`, `.cp-section`, `.cp-section-header`, `.cp-row` (+ `.is-active` amber left-stripe), `.cp-row-icon`, `.cp-row-label`, `.cp-row-hint`, `.cp-footer`, `.cp-breadcrumb`. Recipes use existing tokens (`--color-bg`, `--color-border-subtle`, `--color-accent`, `--color-accent-subtle`, `--color-fg-muted`, `--color-focus-ring`, `--radius-md`, `--radius-lg`), no new palette variables.
+
+**Actions registered (top-level):**
+
+- **NAVIGATE (8 rows):** Today (`/dashboard`), Sell — new invoice (`/orders/prepare-order`), Stock (`/inventory`), People (`/customers`), Catalog (`/categories`), Schemes (`/saving-schemes`), Karigar (`/karigar`), Reports (`/reports`). Shortcut hints displayed but not chord-bound (the Ctrl+G-then-letter chord binding is not a Q deliverable; hints are informational).
+- **QUICK ACTIONS (7 rows):** Add customer... (sub), Add product... (nav → `/inventory`, since the add-product flow is a modal on the inventory page), New invoice (nav → `/orders/prepare-order`), Enroll saving scheme... (sub), Issue karigar job... (nav → `/karigar/jobs/new`), Toggle theme (callback → `ThemeService.toggle()`), Lock today's rate... (sub).
+- **RECENT (up to 5 rows):** pulled via `OrderService.getAllOrders(5, 1, '')` on every palette open; rows read `RAD/YYYY/NNNNN — <firstName> <lastName>`, click routes to `/orders/view-order-details/:orderGuid`.
+
+**Sub-palettes implemented (Rauno breadcrumb pattern):**
+
+- **Add customer...** — inline form: firstName / lastName / phone. On submit calls `CustomerDataService.addCustomer` with the 14-param SP shape (unused fields default to `null` / `'other'` gender + today's DOB so the existing `add_customer` SP signature holds). Toast + palette-close on success, error toast on failure. Breadcrumb chip: `Home / Add customer`.
+- **Enroll saving scheme...** — customer typeahead (2+ chars, results limited to 5 rows) → picker uses `CustomerDataService.getAllCustomers(false, 200, 1, '', fetchAll=true)` client-side cache, filtered by name-substring or phone-substring. Plan-name defaults to `Golden Harvest`, monthly amount `5000`, tenure `11`. On submit calls `SavingSchemesService.enroll` with the picked `customerGuid` + `actorUserId` from `storeService.get('authData').uid`. Breadcrumb chip: `Home / Enroll saving scheme`.
+- **Lock today's rate...** — purity dropdown fed from `PuritiesService.getPurities()`, rate value editable. `session` derived from IST wall-clock (< 14:00 → `AM`, else `PM`); `effectiveDate` = today (YYYY-MM-DD); calls `MetalRatesService.save({ ..., source: 'manual', setByUserId })`. Breadcrumb chip: `Home / Lock today's rate`.
+
+**Navigate-only (no inline form):**
+
+- **Add product...** → `/inventory`. Reason: the existing add-product form is the `AddProductFormComponent` modal launched from the inventory page; not a route. Wiring an inline product form inside the palette would touch feature modules (out of Q's territory) so we route to the module and let the existing flow take over.
+- **Issue karigar job...** → `/karigar/jobs/new` (M's existing route).
+- **New invoice** → `/orders/prepare-order`.
+
+**Fuzzy match approach.** Hand-rolled scorer inside `CommandPaletteComponent.match()`. For each row we build a lowercased haystack from `label + description + section + keywords`. First pass: `hay.indexOf(q)` — if found, score = the index (earlier match = better). Second pass (subsequence fallback): every character of `q` must appear in `hay` in order; if any character is missing → score `-1` (row filters out). Subsequence hits score `500 + firstMatchIdx` so they always rank below substring hits. Groups are then sorted per-section by ascending score. No fuzzy libraries.
+
+**Keyboard shortcuts implemented.**
+
+- `Ctrl+K` / `⌘K` — `@HostListener` on the palette component. `event.preventDefault()`, opens palette, focuses the search input via `queueMicrotask`.
+- `Escape` — from root palette: closes. From sub-palette: pops one frame and clears the query.
+- Backdrop click — closes.
+- Top-bar search click / focus — opens palette (same handler as `Ctrl+K`).
+- `↑` / `↓` — navigate flat row list (concatenation of NAVIGATE + QUICK ACTIONS + RECENT), wraps around at boundaries. Scrolls active row into view.
+- `Enter` — fires the active row's action (nav / callback / sub / recent). Sub-palette form inputs bind Enter directly to their submit handlers so the palette itself doesn't intercept.
+- Row hover updates `activeIndex` (mouse and keyboard stay in sync).
+
+**Recipes added (`styles.scss` Q block).**
+
+- `.cp-backdrop` — fixed inset-0, `rgb(0 0 0 / 0.40)` with 2px backdrop-blur, `z-index: 60`.
+- `.cp-panel` — fixed `top: 80px`, centred via `left: 50%; transform: translateX(-50%)`, `max-width: 560px`, `width: 90vw`, layered shadow, `z-index: 61`.
+- `.cp-search-row` — 56px flex row with left `lucideSearch` icon + input + close button.
+- `.cp-search-input` — transparent, 14px, uses `--color-fg`, muted placeholder.
+- `.cp-section` + `.cp-section-header` — 11px uppercase muted headers with 0.06em letter-spacing.
+- `.cp-row` — 40px, gap 10px, rounded, hover / `.is-active` fill with `--color-accent-subtle`, active row shows a 2px amber left-stripe via `::before`.
+- `.cp-row-icon`, `.cp-row-label`, `.cp-row-hint` — icon leading, label ellipsised, right-aligned muted 11px hint or arrow icon.
+- `.cp-footer` — 11px muted footer strip with `Esc / Enter / arrow` hints on the left and `⌘K` brand mark on the right.
+- `.cp-breadcrumb` — 8px vertical, 12px muted, sits above the search row when a sub-palette is active.
+
+**Test + build.**
+
+- `npx ng build --configuration=development` — PASS. `Application bundle generation complete. [~18s]`. No new NG errors; only the pre-existing `NG8107` optional-chain warnings in M's `enroll-scheme-form.component.html`.
+- `npx ng test --watch=false --browsers=ChromeHeadless` — **22/22 SUCCESS** (19 pre-existing + 3 new).
+- Manual verification via `npm start`:
+  - `Ctrl+K` opens palette; three sections render; Recent list populates from `get_all_orders(5, 1, '')`.
+  - Typing "cus" filters to Customers-related rows (Add customer, People-related keywords).
+  - `↑` / `↓` navigates and wraps; active row shows amber tint + left-stripe.
+  - `Enter` on a nav row routes and closes palette.
+  - `Enter` on "Add customer..." → sub-palette form appears with breadcrumb `Home / Add customer`; submitting inserts a row via `add_customer` SP; toast + palette-close.
+  - `Enter` on "Enroll saving scheme..." → customer typeahead, pick, defaults populate, submit enrolls via `enroll_saving_scheme` SP with `actorUserId` from auth store.
+  - `Enter` on "Toggle theme" flips `data-theme` on `<html>` and persists via `ThemeService`.
+  - Clicking the top-bar search input opens the palette; the `⌘K` kbd hint is visible on the right of the search chrome.
+
+**Deferred / documented, not blocking:**
+
+1. **Recent items scope.** Currently pulls the last 5 invoices from `OrderService.getAllOrders`. Could grow to include recent customers viewed / recent products edited / recent rate locks. Would need per-user recency tracking (localStorage or an `Users.recentActions` JSON column). Deferred.
+2. **Per-user recent-history persistence.** The Recent section is refreshed on every open — no cache invalidation, no per-user pinning. Fine at the current 5-row cap; revisit when the palette grows.
+3. **Ctrl+G chord binding.** The palette displays `Ctrl+G T` / `Ctrl+G S` etc. as shortcut hints on nav rows, but the actual chord binding (Ctrl+G then a letter routing directly, bypassing the palette) is not wired. Hints are informational until someone implements a chord-listener service. Not in this workstream's scope.
+4. **Sub-palette live rate priming for Lock rate.** The purity dropdown defaults to `916` (or the first purity returned from `PuritiesService.getPurities()`); the rate value defaults to `0` unless `MetalRatesService.rates()` already carries a snapshot. Users can override; the SP is single-purity per call (matches K's SP signature).
+5. **Add-product inline form.** Not implemented — the palette navigates to `/inventory` and relies on the existing modal there. The plan spec explicitly allowed this ("the product form is too big for a palette; just navigate").
+6. **Customer picker cache.** Loaded on first typeahead keystroke via `getAllCustomers(fetchAll=true, pageSize=200)`; single per-palette-instance cache, invalidated on component destroy. Good enough for shops in the small-to-mid range; larger customer bases would need a server-side typeahead SP.
+7. **Focus trap.** The palette doesn't currently trap focus inside its dialog surface — clicking outside the backdrop closes the palette, but Tab from the last form field would escape to the underlying page. Not a functional bug (Escape closes cleanly); flagged for accessibility polish alongside T's i18n pass.
 
 ### 14.3 Workstream R — status
 
