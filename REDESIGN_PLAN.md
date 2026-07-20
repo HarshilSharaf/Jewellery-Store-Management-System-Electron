@@ -809,3 +809,58 @@ Rolled into H's 2fcbf51 commit (which added its own H-block at the same time), c
 4. **Real user CRUD + backup + hardware config in Settings.** Explicitly out of scope per the J rules — those remain stubs from E's pass. No SPs added.
 5. **Profile invoices-created KPI.** Left as em-dash placeholder with hint text; a `get_invoices_created_by_user(uid)` SP (or a reuse of the Books list filter) would populate it. Follow-up for the Reports pass in Phase 2.
 6. **Legacy master/sub/product wrapper components deleted.** 30 files removed under `client/app/modules/categories/components/{master,sub,product}-categories/` — their services were preserved. No external consumer referenced the wrappers or the old Bootstrap-modal forms.
+
+---
+
+## 11. Phase 1.5 close — full UI rebuild done
+
+**Reconciled 2026-07-21.** Submodule pointer bumped to include Workstreams G / H / I / J on `redesign/ui-modernization`. Section 10.3 (Workstream I) is in the plan; the code for I was committed at reconciliation time as submodule commit `f983c55` — the workstream had appended its plan section but failed to run `git commit` on its own code before reporting done.
+
+**Submodule commits landed under Phase 1.5 (in order on `redesign/ui-modernization`):**
+
+- `51a1675` (G) — Lightning Admin rip
+- `3e8887e` (G) — AppShell with slim rail + top rate ticker + user menu
+- `fe24966` (G) — Wire AppShell into main route, remove sidebar + old navbar
+- `200885f` (G) — Dashboard redesign as pattern
+- `2fcbf51` (H) — Customers list + view + form
+- `f36ea53` (H) — Inventory grid + view + form
+- `d862062` (J) — Catalog three-tab card grid
+- `bfc688d` (J) — Settings polish
+- `b4141ee` (J) — Profile two-column
+- `9f68d57` (J) — Login brand-mark tighten
+- `f983c55` (I) — Order builder + orders list + details + payments + preview polish
+
+**End-to-end gates on the integrated tree:**
+
+- `ng test --watch=false --browsers=ChromeHeadless` — **15/15 SUCCESS**.
+- `ng build --configuration=development` — PASS (5.7s). Only pre-existing NG8107 optional-chain warnings in a few templates; no new errors.
+- Backend / DB unchanged since Phase 1 close; still runs green.
+
+**What actually shipped:**
+
+- Lightning Admin theme entirely gone. `_bootstrap-compat.scss` retained as a small utility bridge (not a theme). Zero Bootstrap grid classes in customers/**, inventory/**, orders/**, categories/**, settings/**, profile/**, login/**.
+- New AppShell: slim left rail (Today / Sell / Stock / People / Catalog / Settings + sign-out) with amber-stripe active state, top bar with brand wordmark + live rate ticker (999 / 916 / 750 pills) + global search input (Ctrl+K to focus, palette itself remains P3) + theme toggle + user menu.
+- Dashboard: 12-col grid, Instrument Serif KPIs, single-series area line chart, recent-invoices + fast-movers lists, three KPI stat tiles, real empty states.
+- People (Customers): hand-rolled table with initials avatars, two-column detail shell with sticky right sidebar, admin overlay for GSTIN/PAN/credit-balance, three-section form overlay.
+- Stock (Inventory): grid ↔ table density toggle (persists via localStorage), sticky filter chips (purity + master category + in-stock-only + HUID-present), gold/silver stock tiles, six-section product form with live "computed at today's rate" callout, admin-only cost fields.
+- Sell (Order builder): 3-step wizard, floating typeahead product picker with keyboard navigation ('/' focuses search, Alt+D jumps to last-line discount), editable line-item cards, sticky rate-lock card, live totals with per-line CGST+SGST or IGST driven by state.
+- Books (Orders list + details + payments): filterable table, 65/35 detail shell with sticky KPI rail, radio-pill mode selector on payments, cancelled-invoice banner.
+- Invoice preview: sticky toolbar with A4 / 80mm radio-pill toggle, preview centered in shadow-lg box, `@media print` gates all chrome.
+- Catalog: single tabbed page (Master • Product • Sub) with card grid, single overlay dialog shared across tabs, empty state.
+- Settings: horizontal tab strip (7 tabs), grouped shop-identity form, compact metal-rates grid with copy-per-row + global copy-all AM→PM.
+- Profile: two-column with hero + Account + Change-password sections, sticky KPI mini-tiles + sign-out.
+- Login: warm-ivory two-panel layout intact, brand-mark aligned with AppShell rail.
+
+**Recipe layer in `client/styles.scss`:** three workstream-labeled blocks at the bottom of the file — G (KPI recipes), H (chip / purity-chip / detail-shell / detail-section / data-row / page-title / avatar / icon-btn / form-section / radio-pills), I (status-chip variants / radio-pill-row / money / money-lg / money-xl), J (tabs-strip / tab-item / section-heading / field-grid). No workstream edited another's block.
+
+**Deferred / P2 territory (not touched, and correctly not):**
+
+- Per-card usage counts on Catalog (needs new SPs).
+- Per-category icon slug (schema change).
+- Profile "Invoices created" KPI (needs new SP).
+- Rate-ticker inline popover (pills currently route to `/settings`).
+- Real user CRUD, backup/restore, hardware config, RBAC guards — all still stubs.
+- Old-gold entry UI on cart — schema-ready, stub visible in totals panel.
+- HUID / barcode scanner input, weighing-scale RS-232/USB-HID — all Phase 2.
+
+**Phase 2 unblocked.** Every screen the app has now looks like one product. The stack (Tailwind + Spartan/brain + Radix Colors tokens + Lucide + Inter/Hind/Instrument Serif) is proven across ~40 templates. Time to layer the P2 domain features on top.
