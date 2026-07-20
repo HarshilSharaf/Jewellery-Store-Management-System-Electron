@@ -1675,4 +1675,148 @@ Duplicate strategy: skip / update / abort (radio button per entity, defaults to 
 
 ### 14.5 Workstream T — status
 
-_TBD_
+**Scaffold + top-tier translations for hi/gu/mr.** Angular's compile-time i18n
+pipeline is now wired end-to-end: extract → translate → per-locale bundle.
+
+**Phrases tagged (228 unique IDs across 272 uses).**
+- Rail (11) — Today/Sell/Stock/People/Schemes/Karigar/Repair/Catalog/Reports/Settings/Sign out.
+- App shell top-bar + command palette (12) — search placeholder, palette
+  input/aria, root/sub placeholders, root/sub footers, customer-picker.
+- Dashboard main (16) — title, Revenue eyebrow + vs-prev, Lock today's rate
+  card + Lock rate button, empty states, Recent invoices / Fast movers cards,
+  KPI labels (customers / stock / pending), "grams moved" unit.
+- Orders page (23) — Books title + New invoice, filters (All/Paid/Unpaid/
+  Cancelled), column headers (Invoice #, Date, Customer, Items, Amount,
+  Status), status chips, action tooltips (view/print/cancel), empty state.
+- Cart builder + totals (35) — search placeholder, empty state, per-line
+  labels (Net wt, Rate/g, Making mode + 3 modes, Making value, Wastage %,
+  Discount, Line total, Metal, Making, Wastage, Stone), old-gold panel
+  (tested purity, fineness, deduction %, credit, update/add-to-invoice,
+  remarks), rate-lock card (Rate lock, refresh, no-rates warn), totals panel
+  (Totals, Metal value, Making, Wastage, Stone, Subtotal (taxable), Discount,
+  Old-gold credit, Redeem scheme + Apply scheme, IGST/CGST/SGST, Round-off,
+  Grand total, Payable after scheme).
+- Login (12) — Sign in, Signing in, hero eyebrow/title/body, local-first
+  footer, Username + placeholder, Password + placeholder + Forgot, device-
+  only footer.
+- Customer add form (28) — modal title + subtitle, all field labels
+  (First name, Last name, Phone, Email, DOB, Gender + Male/Female, Address,
+  City, State + Select state, State code + help, GSTIN, PAN, Remarks),
+  section headers (Identity/Location/Tax details), required-field errors,
+  Save customer button, Clear.
+- Customers page (10) — title, Search placeholder + aria, column headers,
+  loading, empty state, Add your first customer, Import/Export CSV buttons.
+- Inventory add form (23) — SKU, HUID, HSN, Description, sections
+  (Identity/Category/Metal & weight/Making & wastage/Pricing), Master/Sub/
+  Product, Purity, Gross wt/Net wt short, Stone wt, Stone charges, Making
+  mode + 3 options, Making value, Wastage %, Cost price + Admin-only help,
+  Tag price, Reset/Save changes.
+- Inventory listing (11) — Stock title, Add product, search placeholder +
+  aria, column headers (SKU/HUID/Purity/Product/Net wt/Tag price), empty
+  state + Add your first product.
+- Reports landing (2) — Reports title, Open CTA.
+- Settings (14) — Settings title, Back button, all tab labels (Shop
+  identity, Tax & invoice, Metal rates, Print & hardware, Backup, Users &
+  permissions, Migration, WhatsApp, WhatsApp activity, Language, Database),
+  Shop identity panel sub, Metal rates panel title.
+- Settings > Language (7) — panel title/sub, Current/Requested language
+  headers, restart-note help text, Save preference button, saved-toast
+  banner.
+- Miscellaneous shared (10) — buttons (Add, Save, Save changes, Saving,
+  Cancel, Clear, Close, Back, Reset, Open, Import CSV, Export CSV,
+  Exporting), common (View all, Actions), palette form sub-labels (Plan
+  name, Monthly amount, Tenure months, Rate per gram, Enroll scheme,
+  Add customer, Lock today's rate).
+
+**Locales populated.**
+- `hi` — 228/228 targets filled (0 needs-translation).
+- `gu` — 228/228 targets filled (0 needs-translation).
+- `mr` — 228/228 targets filled (0 needs-translation).
+
+Translation dictionary is centralised in `client/locale/_build-translations.js`
+(a one-shot Node script that reads `messages.xlf` and emits `messages.<hi|gu|
+mr>.xlf` from an inline dictionary). Keep this script for the next
+extraction — Workstream Q's schema-loader / Workstream S's WhatsApp UI may
+add more phrases and the script will preserve current translations while
+seeding new IDs with `state="needs-translation"` fallbacks.
+
+**Placeholder preservation.** Two source strings contain inline tags
+(`<em>` in login hero, `<ng-icon>` in palette-root footer). Both were
+translated with the correct XLIFF `<x id="...">` placeholders so Angular
+doesn't fall back to English at build time.
+
+**Language switcher approach — localStorage + restart instruction.**
+Angular's compile-time i18n produces one bundle per locale, so live-switch
+isn't possible without a rebuild. Settings > Language shows the current
+active locale (read from `document.documentElement.lang`) and a radio group
+of available locales. Selecting a different locale enables Save; on save,
+the choice is persisted to `localStorage['radiance.locale.preference']` and
+an in-panel toast asks the user to close and reopen the app. Electron main
+does not yet read this preference on relaunch — that hook is Phase 3
+follow-up work (see Deferred below).
+
+**Build results.**
+- `ng build --configuration=development` — green, English strings pass
+  through as source (11.8s).
+- `ng build --configuration=hi` — green, output at `dist/hi/browser/hi/`
+  (22.7s). No `NG9091 No translation found` warnings for tagged messages.
+- `ng build --configuration=gu` — green, output at `dist/gu/browser/gu/`
+  (22.3s).
+- `ng build --configuration=mr` — green, output at `dist/mr/browser/mr/`
+  (20.3s).
+
+**Tests.** `ng test --watch=false --browsers=ChromeHeadless` — 32/32 pass.
+No spec touches translated strings by textual content (they use IDs or
+signal accessors), so threading i18n was non-breaking.
+
+**Concurrency with S.** S landed Workstream S (repair + WhatsApp UI) on the
+same branch mid-flight. Two hand-offs happened cleanly:
+- Rail `RailComponent.primary` — T added `$localize` tags for the existing
+  seven items; S added `Repair` and adopted T's `$localize` pattern for the
+  new entry.
+- `SettingsPageComponent` — T added the `language` tab + locale-preference
+  signals + template block; S added `whatsapp` / `whatsapp-activity` tabs.
+  Both merged in S's `feat(whatsapp): send flow` commit.
+- One repair template bug (line 311 accessed `t` outside its `@else if
+  (ticket(); as t)` alias scope — an Angular scoping quirk under
+  strictTemplates) blocked extract-i18n and default builds. T applied the
+  minimal fix (`t.` → `ticket()?.` on that single line, non-restructuring).
+  S subsequently refactored to `@let t = ticket()!;` at the block top — both
+  paths converge.
+
+**Angular config touches.** `angular.json` `test.polyfills` gained
+`@angular/localize/init` so specs pick up the `$localize` runtime; the
+production build already had the polyfill baked via each locale
+configuration. `client/main.ts` also imports `@angular/localize/init` to
+surface the `$localize` type augmentation to strictTemplates — Angular emits
+a lint warning suggesting the polyfill entry instead, which we have; the
+main.ts import stays because our `types: []` in `tsconfig.app.json` blocks
+ambient type discovery otherwise. Net: build warning only, no functional
+impact.
+
+**Deferred (explicitly not done).**
+- Print-invoice template (customer facing but seen once per bill; low ROI).
+- Settings deep-field help text (backup passphrases, migration mapping
+  captions, hardware config descriptions).
+- Long descriptive copy in reports column footers.
+- Dynamic strings composed via template variables (e.g. pluralisation of
+  "1 invoice" / "N invoices" — Angular ICU pluralisation was not scoped for
+  this pass).
+- Electron-main relaunch handler that reads
+  `localStorage['radiance.locale.preference']` and serves
+  `dist/<locale>/index.html` instead of `dist/browser/index.html`. Today the
+  language switcher persists the preference but the Electron shell always
+  serves the default bundle — treat this as a Phase 3 v2 refinement.
+- Native-speaker QA of the seeded translations. The dictionary uses common
+  domain vocabulary but has not been reviewed by a native Hindi / Gujarati
+  / Marathi jewellery-shop clerk. Acronyms (SKU/HUID/GSTIN/PAN/CGST/SGST/
+  IGST/HSN) are intentionally kept in Latin script.
+- WhatsApp settings tab, WhatsApp activity tab, Repair module templates,
+  and Karigar module templates — those UIs are still landing from S / Q and
+  will be tagged in a follow-up pass once their templates stabilise.
+
+**Files.** Client submodule edits under `client/app/**` (13 templates + 2
+component .ts files) plus `client/locale/messages.{hi,gu,mr}.xlf` and
+`client/locale/messages.xlf` (extract source). Helper script at
+`client/locale/_build-translations.js`. Parent-repo touched
+`REDESIGN_PLAN.md` only.
