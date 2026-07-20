@@ -1592,7 +1592,86 @@ Duplicate strategy: skip / update / abort (radio button per entity, defaults to 
 
 ### 14.4 Workstream S — status
 
-_TBD_
+**Landed 2026-07-20 on submodule branch `redesign/ui-modernization`.** Four commits, ~3 400 lines added across the two surfaces (repair module + WhatsApp bill-send). Parent-submodule pointer intentionally not bumped (per rules); one parent-repo `angular.json` polyfill entry added to unblock the test suite (see "Deferred / documented" below).
+
+**Files added (submodule):**
+
+- `client/app/interfaces/Repair/repair.ts` — mirrors P's `Backend/Shared/interfaces/repair.ts` (`RepairTicket`, `RepairStatus`, `RepairPaymentMode`, `CreateRepairTicketPayload`, `UpdateRepairStatusPayload`, `SettleRepairTicketPayload`, `LinkRepairToKarigarPayload`, `GetAllRepairTicketsArgs`).
+- `client/app/interfaces/WhatsApp/whatsapp.ts` — mirrors P's `whatsapp.ts` (`WhatsappStatus`, `WhatsappSendLogRow`, `SendWhatsappPayload`, `UpdateWhatsappStatusPayload`, `GetWhatsappLogArgs`, `WhatsappTemplateComponent`) plus a renderer-only `SendWhatsappResult` that mirrors the main-process orchestrator's return shape (`{ ok, sendGuid?, messageId?, error? }`).
+- `client/app/shared/services/Repair/repair.service.ts` — Angular signal-based service mirroring all 8 P SPs. Prefers `window.electronAPI.repair.*` with `DbBridge` fallthrough. `lastList` signal.
+- `client/app/shared/services/WhatsApp/whatsapp.service.ts` — `send` (orchestrator via IPC only), `updateStatus`, `getLog`, `getByCustomer`, `getByInvoice`. `send` returns a `SendWhatsappResult` and never throws on `not_configured` — the UI banners handle that.
+- `client/app/modules/repair/repair-routing.config.ts` — three routes.
+- `client/app/modules/repair/components/repair-page/*` — tickets list page (filter chips: status multi-select, search, date range; ticket row with avatar+name+status chip+days-open+actions; empty + no-results states; admin-only delete; "Mark ready" quick action).
+- `client/app/modules/repair/components/create-ticket-page/*` — dedicated create page (customer typeahead picker, item description with 500-char counter, weight, `ImageUploadComponent` reuse for the photo, estimates, optional karigar pre-assign with "Issue karigar job now" checkbox that auto-calls `KarigarService.issueJob` after ticket create).
+- `client/app/modules/repair/components/ticket-detail-page/*` — two-column detail shell. Left: party / item / estimates / karigar-link. Right sticky: KPI mini-tiles + quick actions (print-stub + Send WhatsApp update). Three slide-in panels (status advance / karigar link / WhatsApp send) driven by `.repair-status-panel` recipe. Advance panel is context-aware (received → in_progress → ready → delivered with actual-charge + payment-mode radio-pill + payment-ref + delivered-at fields when settling). Decline confirm from any non-terminal state. Admin-only soft delete.
+
+**Files touched (submodule):**
+
+- `client/app/modules/main/main-routing.config.ts` — added `/repair` under `MainComponent` with `AuthGuard`, follows the karigar / saving-schemes pattern verbatim.
+- `client/app/shared/components/app-shell/rail/rail.component.ts` — inserted `{ label: 'Repair', icon: 'lucideWrench', route: '/repair' }` between Karigar and Catalog; registered `lucideWrench` in `provideIcons`. Additive merge with T's `$localize` markers on the same file (T's i18n IDs preserved).
+- `client/app/interfaces/Shared/shop-settings.ts` — extended `ShopSettings` with P's `repairPrefix`, `currentRepairCounter`, `whatsappPhoneNumberId`, `whatsappBusinessAccountId`, `whatsappApiToken`, `whatsappEnabled`, `ibjaAutoFetchEnabled`. New `WhatsappSettingsPatch` interface for the partial UPDATE path.
+- `client/app/shared/services/ShopSettings/shop-settings.service.ts` — new `saveWhatsappSettings(patch)` that issues a direct `UPDATE shopsettings SET whatsapp* WHERE id = 1` — the pre-P `save_shop_settings` SP doesn't accept the new columns, so this is the cleanest bridge until K's SP is bumped.
+- `client/app/modules/settings/components/settings-page/settings-page.component.{ts,html}` — added the two new tabs (`whatsapp`, `whatsapp-activity`). WhatsApp config form with enable toggle, Phone Number ID, Business Account ID, API Token (masked + visibility toggle), Save button, and a "Send test message" button that goes through the orchestrator with `hello_world` template (safe smoke-test template Meta ships by default). Templates informational table (`invoice_ready` / `scheme_reminder` / `repair_ready` / `birthday_greeting`) with "Awaiting Meta approval" caption. Activity tab: filterable table with status chips, date range, refresh, invoice-open link. Deep-linkable via `?tab=whatsapp` or `?tab=whatsapp-activity`. `RouterLink` added to imports for the invoice-open anchors.
+- `client/app/modules/orders/components/order-details/order-details.component.{ts,html}` — added `Send via WhatsApp` icon-btn in the top action row + rewired the side-action button (removed the P3-stub badge). The inline `.whatsapp-send-dialog` prefills phone from the invoice's customer, defaults template to `invoice_ready`, previews the variables the app will send. Not-configured banner links to `Settings → WhatsApp` via `[queryParams]="{ tab: 'whatsapp' }"`. New "WhatsApp history" section beneath payments lists `getByInvoice` rows with status chip + timestamp + error message.
+- `client/app/modules/customers/components/view-details/view-details.component.{ts,html}` — two additive sections inserted after "Saving schemes": "Repair tickets" (calls `RepairService.getByCustomer`, rows are click-through to `/repair/:guid`) and "WhatsApp history" (calls `WhatsAppService.getByCustomer`, rows click-through to the linked invoice if present). No restyling of existing sections — both use the shared `.repair-history` / `.whatsapp-history` recipes from the S block.
+- `client/styles.scss` — appended the labeled `// Workstream S shared recipes (Repair + WhatsApp)` block at the very bottom (after Q + R).
+- `client/test.ts` — added `import '@angular/localize/init'` (T-related fix — see deferred #1).
+
+**Angular services + interfaces.**
+
+- `RepairService` — 8 methods, exact 1-to-1 with P's IPC channels: `create`, `updateStatus`, `settle`, `linkToKarigar`, `getDetails`, `getAll`, `getByCustomer`, `delete`. Signal-based `lastList` mirrors the saving-scheme pattern.
+- `WhatsAppService` — 5 methods: `send` (orchestrator only, no DB fallback), `updateStatus`, `getLog`, `getByCustomer`, `getByInvoice`. `send()` returns `SendWhatsappResult` and never throws — callers switch on `res.ok` / `res.error === 'not_configured'` to render friendly banners.
+- Interfaces mirror P's payload + view shapes exactly. `SendWhatsappResult` is the renderer-only orchestrator response type (`{ ok, sendGuid, messageId?, error? }`) matching what `main.js` returns on `whatsapp:send`.
+
+**Repair module surfaces.**
+
+- **List** — `/repair`. Instrument Serif title with `(N tickets)` count. Filter chips: 5 status multi-select (received / in_progress / ready / delivered / declined); customer/ticket search with 250ms debounce; date range (from → to). Table columns: ticket number (mono 14px), customer avatar + name, received date, days-open, status chip, estimated return, actions (view / mark-ready / admin-only delete). Row hover routes to detail. Empty state uses `lucideWrench` + CTA to `/repair/new`.
+- **Create** — `/repair/new`. Four `.form-section` blocks: Party (customer picker dropdown with typeahead + received-date hint + received-by), Item (description textarea with 500-char counter + weight + photo upload), Estimates (charge + return date + notes), Karigar optional (dropdown + "Issue karigar job now" checkbox that auto-calls `KarigarService.issueJob` after ticket create with the ticket weight + description). Save → toast → navigate to `/repair/:newGuid`.
+- **Detail** — `/repair/:ticketGuid`. Two-column detail shell. Left: header (back arrow, serif ticket number, customer/date/status meta, action icons for context-aware advance / karigar link / decline / admin-delete), Party block, Item block (photo + description + weight + notes), Estimates block, Karigar link block (with job-card deep link if present). Right sticky column: three KPI mini-tiles (days-open / estimated / actual charge) + quick actions (Print receipt stub, Send WhatsApp update).
+- **Status advance** — slide-in `.repair-status-panel` from the right. `received → in_progress` (notes-only), `in_progress → ready` (notes-only), `ready → delivered` (settle form: actual-charge default from estimated, payment-mode radio-pill cash/cheque/online, payment-ref required for non-cash, delivered-at datetime input). Decline confirm modal from any non-terminal state.
+- **Auditlog block** — deferred (see below).
+
+**WhatsApp surfaces.**
+
+- **Settings → WhatsApp** — verification banner at top, config form (enable toggle + Phone Number ID + Business Account ID + API Token with eye-toggle), Save + Send-test buttons, templates table (`invoice_ready` / `scheme_reminder` / `repair_ready` / `birthday_greeting` with "Awaiting Meta approval" caption).
+- **Settings → WhatsApp activity** — 7-column table with sendGuid short, phone, template, status chip, sent/queued timestamp, error/invoice column, and an Open button for invoice rows. Status multi-toggle + date range + refresh + clear.
+- **Order-details "Send via WhatsApp"** — icon-btn in top action row + side-action + inline dialog with phone (pre-filled), template dropdown, variable preview. Inline "not configured" banner links to Settings. WhatsApp history section below payments lists `getByInvoice` rows.
+- **Customer view — WhatsApp history** — small read-only list under Repair tickets, click routes to the linked invoice when present.
+
+**Recipes.** Appended the labeled `// Workstream S shared recipes (Repair + WhatsApp)` block at the bottom of `client/styles.scss`. Adds:
+
+- Status chip variants: `.status-chip--in_progress` (blue-tinted), `--ready` (green success), `--delivered` (neutral), `--declined` (red italic). Repair `--received` reuses K's karigar variant unchanged.
+- WhatsApp status chip variants: `.status-chip--queued` (amber), `--sent` (blue), `--read` (green), `--failed` (red italic).
+- `.repair-status-panel` — right-hand slide-in panel with keyframe animation, backdrop, head, form, actions.
+- `.whatsapp-verification-banner` — warm-tinted card with link support.
+- `.whatsapp-config` / `.whatsapp-config__toggle` / `.whatsapp-templates-table` / `.whatsapp-activity-table` — settings panel layouts.
+- `.repair-history` / `.whatsapp-history` — customer-view read-only lists.
+- `.whatsapp-send-dialog` — inline dialog used from order-details.
+
+**Test + build result.**
+
+- `npx ng build --configuration=development` — **PASS** (~14s). No new NG errors; the pre-existing NG8107 optional-chain warnings from M's `enroll-scheme-form` templates remain unrelated.
+- `npx ng test --watch=false --browsers=ChromeHeadless` — **32/32 SUCCESS**. Needed one parent-repo `angular.json` polyfill entry to unblock the suite (see deferred #1).
+
+**Commits (4 on submodule `redesign/ui-modernization`, no push):**
+
+1. `feat(repair): repair module with list, detail, create, status advance`
+2. `feat(whatsapp): send flow with settings + activity + order-details button`
+3. `feat(customers): repair + whatsapp history sections on customer view`
+4. `feat(shell): rail nav entry for Repair`
+
+**Deferred / documented, not blocking:**
+
+1. **`@angular/localize/init` polyfill entry.** The Karma test builder in Angular 17+ needs `@angular/localize/init` in its `polyfills:` list to satisfy the runtime `$localize` reference generated by T's `i18n` markers in `LoginComponent` / `CommandPaletteComponent`. Without it, 3 of the 32 specs fail with `ReferenceError: $localize is not defined`. Added the polyfill to `angular.json.projects.Frontend.architect.test.options.polyfills` (parent-repo edit outside the client submodule — flagged here so T knows it's already in). Also added a redundant `import '@angular/localize/init'` at the top of `client/test.ts` in the WhatsApp commit — that alone doesn't fix the Karma builder, but leaving it there is harmless and defensive.
+2. **Auditlog per-entity SP.** The plan mentions a "last 3 auditlog entries for this ticket" block on the ticket detail. P didn't ship a `get_audit_log_by_entity` SP and adding one is a P-territory extension. The block is skipped for now; when P (or a follow-up) lands the SP, the detail template needs one `<section>` insert + a signal.
+3. **Real Meta verification flow.** The current "Send test message" button uses the `hello_world` template Meta ships by default (safe smoke test that doesn't need shop approval), and stops at whatever error Meta returns. Once shops move past the 2–6 week verification lead time, per-shop template approval flow could be pulled from the Meta Graph API and rendered inline in the templates table. Deferred.
+4. **Template variable substitution examples.** Order-details and ticket-detail send the variables in fixed positional order matching the plan spec (`customer first name`, `invoice #` or `ticket #`, `grand total` or `actual charge`). No per-template variable schema editor. When a shop approves a template with a different variable order, they'd need to open the Meta Business Manager to see the mapping — the app doesn't fetch template shape from Meta today.
+5. **PDF-URL generation for real invoice attachments.** WhatsApp Cloud API `image`/`document` attachments require a public HTTPS URL. This shop runs offline; there's no public host. Deferred until the licence-server + shop cloud portal exists. The `attachmentUrl` field is passed through end-to-end for future use.
+6. **`whatsapp.send` idempotency (from P's deferred list).** Client-side single-flight guard on the send button (button `disabled` while `whatsappSending()` is true) mitigates double-taps. Server-side dedupe would still need P's `clientDedupeToken` column.
+7. **Repair receipt print.** Placeholder toast. Follow-up: reuse the invoice-print thermal-80mm CSS with a repair-specific header layout.
+8. **Photo file storage location.** Reuses `FileSystemService.customerImagesDir` with a `repair-<timestamp>.jpg` prefix. Long-term a `repairImagesDir` sibling directory would be cleaner but requires main-process filesystem changes.
+
+
 
 ### 14.5 Workstream T — status
 
