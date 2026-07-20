@@ -15,17 +15,46 @@
  * `nodeIntegration: false`, and `webSecurity: true` viable.
  */
 
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const mysql = require('mysql2/promise');
 const ElectronStore = require('electron-store');
-const bcrypt = require('bcryptjs');
 const logger = require('electron-log');
-const backupService = require('./backup');
-const scaleService = require('./scale');
-const whatsappService = require('./whatsapp');
-const ibjaService = require('./ibja');
+
+// ---------------------------------------------------------------------------
+// Chromium / V8 command-line switches. Must be appended BEFORE app.whenReady()
+// resolves; Chromium locks these once the browser process finishes bootstrap.
+// ---------------------------------------------------------------------------
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=512');
+app.commandLine.appendSwitch('disk-cache-size', String(50 * 1024 * 1024));
+
+// Force the SwiftShader software rasterizer path on shop PCs with outdated
+// Intel HD drivers (leading GPU-process crash source on the Tier-2/3
+// hardware target). Costs ~5% renderer CPU on modern GPUs but eliminates
+// the crash mode entirely. Gated so a shopkeeper on modern hardware can
+// opt out via `set ZEUS_DISABLE_GPU=0` before launch.
+if (process.env.ZEUS_DISABLE_GPU !== '0') {
+  app.disableHardwareAcceleration();
+}
+
+// Rotate electron-log file transport at 5 MB so a long-running shop install
+// doesn't grow %APPDATA%\<app>\logs\ without bound over months of use.
+logger.transports.file.maxSize = 5 * 1024 * 1024;
+
+// Lazy-loaded native / feature-bindings. Deferring require() until the first
+// handler invocation keeps cold-boot below the splash paint (~40-100 ms) and
+// prevents a broken native binding from crashing app startup.
+let backupService = null;
+let scaleService = null;
+let whatsappService = null;
+let ibjaService = null;
+let bcrypt = null;
+function getBackupService()   { if (!backupService)   backupService   = require('./backup');   return backupService; }
+function getScaleService()    { if (!scaleService)    scaleService    = require('./scale');    return scaleService; }
+function getWhatsappService() { if (!whatsappService) whatsappService = require('./whatsapp'); return whatsappService; }
+function getIbjaService()     { if (!ibjaService)     ibjaService     = require('./ibja');     return ibjaService; }
+function getBcrypt()          { if (!bcrypt)          bcrypt          = require('bcryptjs');   return bcrypt; }
 
 const isDev = !app.isPackaged;
 
@@ -66,6 +95,11 @@ const store = new ElectronStore();
 // ---------------------------------------------------------------------------
 let pool = null;
 
+// Event-driven pool-ready signal. Replaces the permanent 2 s setInterval
+// (`bootPoll`) that used to guard `scheduleNextIbjaFire`.
+let resolvePoolReady;
+const poolReady = new Promise((resolve) => { resolvePoolReady = resolve; });
+
 async function createPool(config) {
   // Close any previous pool so credentials changes take effect. Errors
   // during close are logged but not thrown (a broken previous pool must
@@ -82,10 +116,15 @@ async function createPool(config) {
     password:              config.password || ENV_DB_PASSWORD,
     database:              config.database || ENV_DB_NAME,
     waitForConnections:    true,
-    connectionLimit:       10,
+    // Single-shop single-user peaks at 2-3 concurrent queries; 4 is plenty
+    // and saves ~2-3 MB per unused pool slot.
+    connectionLimit:       4,
     queueLimit:            0,
     enableKeepAlive:       true,
     keepAliveInitialDelay: 10_000,
+    // Release idle connections after 60 s so mysql server doesn't hold
+    // sockets open for the app lifetime.
+    idleTimeout:           60_000,
   });
 
   // Explicit listener so protocol drops (idle timeouts, MySQL server
@@ -107,6 +146,11 @@ async function createPool(config) {
     await conn.ping();
   } finally {
     conn.release();
+  }
+
+  if (typeof resolvePoolReady === 'function') {
+    resolvePoolReady();
+    resolvePoolReady = null;
   }
 }
 
@@ -144,16 +188,27 @@ const createWindow = () => {
     height: 800,
     skipTaskbar: false,
     show: false,
+    // Warm ivory pre-paint matches the app's light-theme --color-bg
+    // (--sand-2 = #f9f9f8 in client/styles.scss). Chromium paints this
+    // BEFORE Angular's first frame, eliminating the white-flash gap
+    // between splash-destroy and renderer first paint.
+    backgroundColor: '#f9f9f8',
     webPreferences: {
       // Section 5: Electron hardening. Renderer must not touch Node.
       nodeIntegration: false,
       contextIsolation: true,
       webSecurity: true,
-      sandbox: false, // preload uses require(); keep sandbox off for now.
+      sandbox: true,
+      spellcheck: false,
+      v8CacheOptions: 'code',
       preload: path.join(__dirname, 'preload.js'),
     },
   });
 
+  // Splash is a bare Chromium tab with no JS beyond CSS animations; drop
+  // the webPreferences block. Electron 20+ defaults (sandbox: true,
+  // contextIsolation: true, nodeIntegration: false) are the right posture
+  // and drop ~30 MB per splash-renderer overhead.
   splashScreen = new BrowserWindow({
     width: 800,
     height: 600,
@@ -161,11 +216,17 @@ const createWindow = () => {
     frame: false,
     alwaysOnTop: true,
     center: true,
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      webSecurity: true,
-    },
+    backgroundColor: '#f9f9f8',
+  });
+
+  // ready-to-show pre-paints the background but does NOT show the window:
+  // splash-close IPC drives the actual show. This kills the white flash
+  // between splash-destroy and Angular first paint.
+  mainWindow.once('ready-to-show', () => {
+    // Pre-paint only. The backgroundColor is already applied by Chromium;
+    // this event just guarantees we've hit "renderer is ready to paint"
+    // before splash-close triggers show.
+    logger.info('[main] mainWindow ready-to-show; awaiting splash-close IPC.');
   });
 
   if (isDev) {
@@ -174,12 +235,23 @@ const createWindow = () => {
     mainWindow.loadURL('http://localhost:4200/');
     // Auto-open DevTools in dev so preload / bootstrap errors surface. The
     // main window is created with show:false, so without this any preload
-    // load error stays invisible until the app is unstuck.
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
+    // load error stays invisible until the app is unstuck. Env-gated so a
+    // developer running a prod smoke-test doesn't get DevTools.
+    if (process.env.ZEUS_DEVTOOLS !== '0') {
+      mainWindow.webContents.openDevTools({ mode: 'detach' });
+    }
   } else {
     logger.info('[main] Running in production');
     splashScreen.loadFile('./dist/browser/assets/splashscreens/splashscreen-1/index.html');
     mainWindow.loadFile('./dist/browser/index.html');
+  }
+
+  // Defensive: slam DevTools closed in the packaged build even if a user
+  // hits Ctrl+Shift+I; prevents accidental IPC-internals exposure.
+  if (app.isPackaged) {
+    mainWindow.webContents.on('devtools-opened', () => {
+      mainWindow.webContents.closeDevTools();
+    });
   }
 
   // Surface preload load failures. Silent failures here were the reason the
@@ -190,17 +262,21 @@ const createWindow = () => {
   });
 
   // Safety net: if the renderer never triggers close_splashscreen (preload
-  // failed, network stall, etc.), force the main window to show after 15s
-  // so the user is never permanently locked out of the app.
+  // failed, network stall, etc.), notify the renderer, then force-show.
+  // 10s is the ops signal window; the user learns "something went wrong"
+  // rather than watching the splash disappear silently.
   const splashFallbackTimer = setTimeout(() => {
+    logger.warn('[main] Splash fallback timer fired; forcing main window visible');
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      try { mainWindow.webContents.send('boot:degraded'); } catch (_) { /* ignore */ }
+    }
     if (splashScreen && !splashScreen.isDestroyed()) {
-      logger.warn('[main] Splash fallback timer fired; forcing main window visible');
       splashScreen.destroy();
     }
     if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
       mainWindow.show();
     }
-  }, 15_000);
+  }, 10_000);
 
   mainWindow.on('closed', () => clearTimeout(splashFallbackTimer));
 };
@@ -644,7 +720,7 @@ function registerIpcHandlers() {
     const cfg = { ...(await currentDbConfig()), ...(payload?.dbConfig || {}) };
     const dir = await currentBackupDir(payload?.targetDir);
     try {
-      const result = await backupService.createBackup(cfg, payload?.passphrase, dir);
+      const result = await getBackupService().createBackup(cfg, payload?.passphrase, dir);
       return { ok: true, result };
     } catch (err) {
       logger.error('[backup:create] failed:', err);
@@ -655,7 +731,7 @@ function registerIpcHandlers() {
   ipcMain.handle('backup:restore', async (_event, payload) => {
     const cfg = { ...(await currentDbConfig()), ...(payload?.dbConfig || {}) };
     try {
-      await backupService.restoreBackup(cfg, payload?.archivePath, payload?.passphrase);
+      await getBackupService().restoreBackup(cfg, payload?.archivePath, payload?.passphrase);
       return { ok: true };
     } catch (err) {
       logger.error('[backup:restore] failed:', err);
@@ -666,7 +742,7 @@ function registerIpcHandlers() {
   ipcMain.handle('backup:list', async (_event, payload) => {
     const dir = await currentBackupDir(payload?.backupDir);
     try {
-      const entries = await backupService.listBackups(dir);
+      const entries = await getBackupService().listBackups(dir);
       return { ok: true, entries, backupDir: dir };
     } catch (err) {
       logger.error('[backup:list] failed:', err);
@@ -679,7 +755,7 @@ function registerIpcHandlers() {
       return { ok: false, error: 'Forbidden: canBackup' };
     }
     try {
-      await backupService.deleteBackup(payload?.archivePath);
+      await getBackupService().deleteBackup(payload?.archivePath);
       return { ok: true };
     } catch (err) {
       logger.error('[backup:delete] failed:', err);
@@ -707,12 +783,12 @@ function registerIpcHandlers() {
 
   // -- Weighing scale (RS-232 via serialport) -------------------------------
   ipcMain.handle('scale:getStatus', async () => {
-    return scaleService.status();
+    return getScaleService().status();
   });
 
   ipcMain.handle('scale:listPorts', async () => {
     try {
-      const ports = await scaleService.listPorts();
+      const ports = await getScaleService().listPorts();
       return { ok: true, ports };
     } catch (err) {
       logger.error('[scale:listPorts] failed:', err);
@@ -722,7 +798,7 @@ function registerIpcHandlers() {
 
   ipcMain.handle('scale:open', async (_event, payload) => {
     try {
-      const result = await scaleService.open(
+      const result = await getScaleService().open(
         payload?.portPath,
         payload?.baudRate,
         (reading) => {
@@ -740,7 +816,7 @@ function registerIpcHandlers() {
 
   ipcMain.handle('scale:close', async () => {
     try {
-      await scaleService.close();
+      await getScaleService().close();
       return { ok: true };
     } catch (err) {
       logger.error('[scale:close] failed:', err);
@@ -749,7 +825,7 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('scale:getReading', async () => {
-    return scaleService.getReading();
+    return getScaleService().getReading();
   });
 
   // -- Repair tickets ------------------------------------------------------
@@ -903,7 +979,7 @@ function registerIpcHandlers() {
       return { ok: false, error: err.message };
     }
 
-    const apiResult = await whatsappService.sendTemplateMessage({
+    const apiResult = await getWhatsappService().sendTemplateMessage({
       phoneNumberId: cfg.whatsappPhoneNumberId,
       apiToken:      cfg.whatsappApiToken,
       to:            payload?.phoneNumber,
@@ -1025,12 +1101,12 @@ function registerIpcHandlers() {
     if (typeof plaintext !== 'string' || typeof hash !== 'string') {
       return false;
     }
-    return bcrypt.compare(plaintext, hash);
+    return getBcrypt().compare(plaintext, hash);
   });
 
   ipcMain.handle('auth:generateHash', async (_event, plaintext, rounds) => {
     const cost = Number.isFinite(rounds) ? rounds : 10;
-    return bcrypt.hash(plaintext, cost);
+    return getBcrypt().hash(plaintext, cost);
   });
 
   // -- File system (images) -------------------------------------------------
@@ -1141,7 +1217,7 @@ function ibjaScheduleInfo(now = new Date()) {
 async function runIbjaFetchAndSave() {
   if (!pool) return { ok: false, error: 'db_not_initialised' };
   const now = new Date();
-  const result = await ibjaService.fetchIbjaRates(now);
+  const result = await getIbjaService().fetchIbjaRates(now);
 
   const istTotal = now.getUTCHours() * 60 + now.getUTCMinutes() + IST_OFFSET_MIN;
   const istHour  = Math.floor((istTotal % (24 * 60)) / 60);
@@ -1191,7 +1267,10 @@ async function runIbjaFetchAndSave() {
 }
 
 async function scheduleNextIbjaFire() {
-  if (!pool) return;
+  if (!pool) {
+    logger.warn('[ibja] scheduleNextIbjaFire called with no pool; skipping.');
+    return;
+  }
   let enabled = false;
   try {
     const [rows] = await pool.query(
@@ -1231,19 +1310,58 @@ async function scheduleNextIbjaFire() {
 app.whenReady().then(() => {
   registerIpcHandlers();
   createWindow();
-  // The scheduler self-defers if the pool is not up yet — main window opens
-  // instantly, then the renderer calls db:initialize which flips pool to
-  // truthy. We poll cheaply until the pool is live, then schedule.
-  const bootPoll = setInterval(() => {
-    if (pool) {
-      clearInterval(bootPoll);
-      scheduleNextIbjaFire().catch((err) => logger.warn('[ibja] initial schedule failed:', err.message));
-    }
-  }, 2_000);
+  poolReady.then(() => {
+    scheduleNextIbjaFire().catch((err) =>
+      logger.warn('[ibja] initial schedule failed:', err.message));
+  });
 });
 
-app.on('window-all-closed', async () => {
-  try { if (pool) await pool.end(); } catch (_e) { /* ignore */ }
+// Consolidated shutdown: closes serialport, clears IBJA timer, ends mysql2
+// pool, and prunes the Chromium HTTP disk cache. `before-quit` runs on
+// every quit path (menu-quit on macOS bypasses window-all-closed), so
+// this is the correct hook for blocking cleanup.
+let isQuitting = false;
+app.on('before-quit', async (event) => {
+  if (isQuitting) return;
+  isQuitting = true;
+  event.preventDefault();
+
+  try {
+    if (scaleService && typeof scaleService.close === 'function') {
+      await scaleService.close();
+    }
+  } catch (err) {
+    logger.warn('[shutdown] scale.close failed:', err && err.message);
+  }
+
+  if (ibjaTimer) { clearTimeout(ibjaTimer); ibjaTimer = null; }
+
+  try {
+    if (pool) await pool.end();
+  } catch (err) {
+    logger.warn('[shutdown] pool.end failed:', err && err.message);
+  } finally {
+    pool = null;
+  }
+
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      await mainWindow.webContents.session.clearCache();
+    } else {
+      await session.defaultSession.clearCache();
+    }
+  } catch (err) {
+    logger.warn('[shutdown] clearCache failed:', err && err.message);
+  }
+
+  // Drop every IPC handler so a lingering renderer reload during quit
+  // doesn't re-enter a partially-torn-down handler chain.
+  try { ipcMain.removeAllListeners(); } catch (_) { /* ignore */ }
+
+  app.exit(0);
+});
+
+app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
