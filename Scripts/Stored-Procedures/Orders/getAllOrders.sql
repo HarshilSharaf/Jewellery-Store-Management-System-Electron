@@ -46,7 +46,7 @@ SELECT
     FROM 
       invoice_products_mappings ipm 
       inner join products p on ipm.ProductId = p.id 
-      inner join masterCategories m on p.mid = m.id 
+      inner join mastercategories m on p.mid = m.id
       inner join subcategories s on p.sid = s.id 
       inner join productcategories pc on p.pid = pc.id 
     where 

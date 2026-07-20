@@ -1,0 +1,457 @@
+
+> com.jewellery.store.management.system@0.0.0 build
+> ng build --base-href ./ --configuration=production
+
+[33m❯[39m Building...
+[32m✔[39m Building...
+[1mInitial chunk files[22m  [2m | [22m[1mNames[22m                    [2m | [22m [1mRaw size[22m[2m | [22m[1mEstimated transfer size[22m
+[32mchunk-6BBIZ62J.js[39m    [2m | [22m[2m-[22m                        [2m | [22m[36m387.89 kB[39m[2m | [22m              [36m102.84 kB[39m
+[32mstyles-M4AH3K6T.css[39m  [2m | [22m[2mstyles[22m                   [2m | [22m[36m245.11 kB[39m[2m | [22m               [36m32.02 kB[39m
+[32mchunk-O5AO53H6.js[39m    [2m | [22m[2m-[22m                        [2m | [22m [36m91.16 kB[39m[2m | [22m               [36m17.76 kB[39m
+[32mmain-M2IDDZQ6.js[39m     [2m | [22m[2mmain[22m                     [2m | [22m [36m79.97 kB[39m[2m | [22m               [36m21.24 kB[39m
+[32mchunk-PWICMITF.js[39m    [2m | [22m[2m-[22m                        [2m | [22m [36m54.98 kB[39m[2m | [22m                [36m7.84 kB[39m
+[32mpolyfills-OYTHSGNX.js[39m[2m | [22m[2mpolyfills[22m                [2m | [22m [36m35.10 kB[39m[2m | [22m               [36m11.54 kB[39m
+[32mchunk-OGVPRJIG.js[39m    [2m | [22m[2m-[22m                        [2m | [22m [36m32.88 kB[39m[2m | [22m                [36m8.68 kB[39m
+[32mchunk-37ANQ6RN.js[39m    [2m | [22m[2m-[22m                        [2m | [22m [36m21.56 kB[39m[2m | [22m                [36m8.11 kB[39m
+[32mchunk-X7EMJHZL.js[39m    [2m | [22m[2m-[22m                        [2m | [22m  [36m1.97 kB[39m[2m | [22m              [36m704 bytes[39m
+[32mchunk-5F5EOCMX.js[39m    [2m | [22m[2m-[22m                        [2m | [22m  [36m1.71 kB[39m[2m | [22m              [36m677 bytes[39m
+[32mscripts-IZQUGU4F.js[39m  [2m | [22m[2mscripts[22m                  [2m | [22m  [36m1.42 kB[39m[2m | [22m              [36m407 bytes[39m
+[32mchunk-7RWCIHFI.js[39m    [2m | [22m[2m-[22m                        [2m | [22m  [36m1.07 kB[39m[2m | [22m              [36m223 bytes[39m
+[32mchunk-MCO6LLWW.js[39m    [2m | [22m[2m-[22m                        [2m | [22m[36m529 bytes[39m[2m | [22m              [36m529 bytes[39m
+
+[1m [22m                    [2m | [22m[1mInitial total[22m            [2m | [22m[1m[93m955.33 kB[39m[22m[2m | [22m              [1m212.57 kB[22m
+
+[1mLazy chunk files[22m     [2m | [22m[1mNames[22m                    [2m | [22m [1mRaw size[22m[2m | [22m[1mEstimated transfer size[22m
+[32mchunk-TMJQQQER.js[39m    [2m | [22m[2mdashboard-routing-config[22m [2m | [22m[36m215.72 kB[39m[2m | [22m               [36m63.78 kB[39m
+[32mchunk-GF6Y5F6C.js[39m    [2m | [22m[2m-[22m                        [2m | [22m[36m126.18 kB[39m[2m | [22m               [36m23.48 kB[39m
+[32mchunk-IAHBAOBA.js[39m    [2m | [22m[2morders-routing-config[22m    [2m | [22m [36m98.82 kB[39m[2m | [22m               [36m23.19 kB[39m
+[32mchunk-Z7L666NL.js[39m    [2m | [22m[2m-[22m                        [2m | [22m [36m73.13 kB[39m[2m | [22m               [36m15.84 kB[39m
+[32mchunk-WH6R56OI.js[39m    [2m | [22m[2mcustomers-routing-config[22m [2m | [22m [36m59.05 kB[39m[2m | [22m               [36m12.99 kB[39m
+[32mchunk-JTYAH5SG.js[39m    [2m | [22m[2m-[22m                        [2m | [22m [36m48.18 kB[39m[2m | [22m                [36m9.62 kB[39m
+[32mchunk-RKS6VNIL.js[39m    [2m | [22m[2minventory-routing-config[22m [2m | [22m [36m36.50 kB[39m[2m | [22m                [36m7.24 kB[39m
+[32mchunk-JVUD3HRB.js[39m    [2m | [22m[2mcategories-routing-config[22m[2m | [22m [36m25.92 kB[39m[2m | [22m                [36m3.74 kB[39m
+[32mchunk-TS7TQSXJ.js[39m    [2m | [22m[2mmain-routing-config[22m      [2m | [22m [36m23.49 kB[39m[2m | [22m                [36m5.96 kB[39m
+[32mchunk-N36IKTFZ.js[39m    [2m | [22m[2mprofile-routing-config[22m   [2m | [22m [36m12.28 kB[39m[2m | [22m                [36m3.48 kB[39m
+[32mchunk-I4537Q5V.js[39m    [2m | [22m[2m-[22m                        [2m | [22m [36m12.05 kB[39m[2m | [22m                [36m3.81 kB[39m
+[32mchunk-NXLDV262.js[39m    [2m | [22m[2m-[22m                        [2m | [22m [36m11.57 kB[39m[2m | [22m                [36m3.48 kB[39m
+[32mchunk-CIM4PJJA.js[39m    [2m | [22m[2msettings-routing-config[22m  [2m | [22m  [36m8.26 kB[39m[2m | [22m                [36m2.63 kB[39m
+[32mchunk-7ZQFNI7I.js[39m    [2m | [22m[2mlogin-routing-config[22m     [2m | [22m  [36m8.14 kB[39m[2m | [22m                [36m2.31 kB[39m
+[32mchunk-ER23RPAG.js[39m    [2m | [22m[2m-[22m                        [2m | [22m  [36m7.31 kB[39m[2m | [22m                [36m1.98 kB[39m
+[2m...and 9 more lazy chunks files. Use "--verbose" to show all the files.[22m
+
+Application bundle generation complete. [20.317 seconds]
+
+[1m[33m[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mTS-998113: AddCustomerFormComponent is not used within the template of CustomersPageComponent[0m [1m[35m[plugin angular-compiler][0m
+
+    client/app/modules/customers/components/customers-page/customers-page.component.ts:20:49:
+[37m      20 │ ...DataTableComponent, [32mAddCustomerFormComponent[37m, PageHeaderComponent]
+         ╵                        [32m~~~~~~~~~~~~~~~~~~~~~~~~[0m
+
+
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mNG8107: The left side of this optional chain operation does not include 'null' or 'undefined' in its type, therefore the '?.' operator can be replaced with the '.' operator.[0m [1m[35m[plugin angular-compiler][0m
+
+    client/app/modules/inventory/components/available-products/components/add-product-form/add-product-form.component.html:43:67:
+[37m      43 │ ...e of allCategoriesData?.[32mmasterCategories[37m; track masterCategoryN...
+         ╵                            [32m~~~~~~~~~~~~~~~~[0m
+
+  Error occurs in the template of component AddProductFormComponent.
+
+    client/app/modules/inventory/components/available-products/components/add-product-form/add-product-form.component.ts:14:15:
+[37m      14 │   templateUrl: [32m'./add-product-form.component.html'[37m,
+         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+
+
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mNG8107: The left side of this optional chain operation does not include 'null' or 'undefined' in its type, therefore the '?.' operator can be replaced with the '.' operator.[0m [1m[35m[plugin angular-compiler][0m
+
+    client/app/modules/inventory/components/available-products/components/add-product-form/add-product-form.component.html:71:64:
+[37m      71 │ ...Name of allCategoriesData?.[32msubCategories[37m; track subCategoryName) {
+         ╵                               [32m~~~~~~~~~~~~~[0m
+
+  Error occurs in the template of component AddProductFormComponent.
+
+    client/app/modules/inventory/components/available-products/components/add-product-form/add-product-form.component.ts:14:15:
+[37m      14 │   templateUrl: [32m'./add-product-form.component.html'[37m,
+         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+
+
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mNG8107: The left side of this optional chain operation does not include 'null' or 'undefined' in its type, therefore the '?.' operator can be replaced with the '.' operator.[0m [1m[35m[plugin angular-compiler][0m
+
+    client/app/modules/inventory/components/available-products/components/add-product-form/add-product-form.component.html:100:68:
+[37m      100 │ ... of allCategoriesData?.[32mproductCategories[37m; track productCategor...
+          ╵                           [32m~~~~~~~~~~~~~~~~~[0m
+
+  Error occurs in the template of component AddProductFormComponent.
+
+    client/app/modules/inventory/components/available-products/components/add-product-form/add-product-form.component.ts:14:15:
+[37m      14 │   templateUrl: [32m'./add-product-form.component.html'[37m,
+         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+
+
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mNG8107: The left side of this optional chain operation does not include 'null' or 'undefined' in its type, therefore the '?.' operator can be replaced with the '.' operator.[0m [1m[35m[plugin angular-compiler][0m
+
+    client/app/modules/orders/components/order-details/order-details.component.html:94:30:
+[37m      94 │               @if (orderData?.[32misPaymentDone[37m) {
+         ╵                               [32m~~~~~~~~~~~~~[0m
+
+  Error occurs in the template of component OrderDetailsComponent.
+
+    client/app/modules/orders/components/order-details/order-details.component.ts:23:15:
+[37m      23 │   templateUrl: [32m'./order-details.component.html'[37m,
+         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+
+
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mNG8107: The left side of this optional chain operation does not include 'null' or 'undefined' in its type, therefore the '?.' operator can be replaced with the '.' operator.[0m [1m[35m[plugin angular-compiler][0m
+
+    client/app/modules/orders/components/order-details/order-details.component.html:97:31:
+[37m      97 │               @if (!orderData?.[32misPaymentDone[37m) {
+         ╵                                [32m~~~~~~~~~~~~~[0m
+
+  Error occurs in the template of component OrderDetailsComponent.
+
+    client/app/modules/orders/components/order-details/order-details.component.ts:23:15:
+[37m      23 │   templateUrl: [32m'./order-details.component.html'[37m,
+         ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+
+
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mNG8107: The left side of this optional chain operation does not include 'null' or 'undefined' in its type, therefore the '?.' operator can be replaced with the '.' operator.[0m [1m[35m[plugin angular-compiler][0m
+
+    client/app/modules/orders/components/print-invoice/print-invoice.component.html:65:45:
+[37m      65 │ ... @for (product of _InvoiceData?.[32minvoice_products[37m; track product) {
+         ╵                                    [32m~~~~~~~~~~~~~~~~[0m
+
+  Error occurs in the template of component PrintInvoiceComponent.
+
+    client/app/modules/orders/components/print-invoice/print-invoice.component.ts:7:15:
+[37m      7 │   templateUrl: [32m'./print-invoice.component.html'[37m,
+        ╵                [32m~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+
+
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1m7 repetitive deprecation warnings omitted.
+Run in verbose mode to see all warnings.[0m [1m[35m[plugin angular-sass][0m
+
+    angular:styles/global:styles:3:8:
+[37m      3 │ @import [32m'client/styles.scss'[37m;
+        ╵         [32m~~~~~~~~~~~~~~~~~~~~[0m
+
+  null
+
+
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mDeprecation[0m [1m[35m[plugin angular-sass][0m
+
+    client/assets/lightning-admin.scss:1:8:
+[37m      1 │ @import [32m[37m"./partials/variables";
+        ╵         [32m^[0m
+
+
+  Sass @import rules are deprecated and will be removed in Dart Sass 3.0.0.
+  
+  More info and automated migrator: [4mhttps://sass-lang.com/d/import[0m
+
+  The plugin "angular-sass" was triggered by this import
+
+    angular:styles/global:styles:3:8:
+[37m      3 │ @import [32m'client/styles.scss'[37m;
+        ╵         [32m~~~~~~~~~~~~~~~~~~~~[0m
+
+
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mDeprecation[0m [1m[35m[plugin angular-sass][0m
+
+    client/assets/lightning-admin.scss:2:8:
+[37m      2 │ @import [32m[37m"./partials/bootstrap-compat";
+        ╵         [32m^[0m
+
+
+  Sass @import rules are deprecated and will be removed in Dart Sass 3.0.0.
+  
+  More info and automated migrator: [4mhttps://sass-lang.com/d/import[0m
+
+  The plugin "angular-sass" was triggered by this import
+
+    angular:styles/global:styles:3:8:
+[37m      3 │ @import [32m'client/styles.scss'[37m;
+        ╵         [32m~~~~~~~~~~~~~~~~~~~~[0m
+
+
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mDeprecation[0m [1m[35m[plugin angular-sass][0m
+
+    client/assets/lightning-admin.scss:3:8:
+[37m      3 │ @import [32m[37m"./partials/navbar";
+        ╵         [32m^[0m
+
+
+  Sass @import rules are deprecated and will be removed in Dart Sass 3.0.0.
+  
+  More info and automated migrator: [4mhttps://sass-lang.com/d/import[0m
+
+  The plugin "angular-sass" was triggered by this import
+
+    angular:styles/global:styles:3:8:
+[37m      3 │ @import [32m'client/styles.scss'[37m;
+        ╵         [32m~~~~~~~~~~~~~~~~~~~~[0m
+
+
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mDeprecation[0m [1m[35m[plugin angular-sass][0m
+
+    client/assets/partials/_bootstrap-compat.scss:451:22:
+[37m      451 │     background-color: [32m[37mdarken($secondary, 8%);
+          ╵                       [32m^[0m
+
+
+  Global built-in functions are deprecated and will be removed in Dart Sass 3.0.0.
+  Use color.adjust instead.
+  
+  More info and automated migrator: [4mhttps://sass-lang.com/d/import[0m
+
+  The plugin "angular-sass" was triggered by this import
+
+    angular:styles/global:styles:3:8:
+[37m      3 │ @import [32m'client/styles.scss'[37m;
+        ╵         [32m~~~~~~~~~~~~~~~~~~~~[0m
+
+
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mDeprecation[0m [1m[35m[plugin angular-sass][0m
+
+    client/assets/partials/_bootstrap-compat.scss:451:22:
+[37m      451 │     background-color: [32m[37mdarken($secondary, 8%);
+          ╵                       [32m^[0m
+
+
+  darken() is deprecated. Suggestions:
+  
+  color.scale($color, $lightness: -10.5154639175%)
+  color.adjust($color, $lightness: -8%)
+  
+  More info: [4mhttps://sass-lang.com/d/color-functions[0m
+
+  The plugin "angular-sass" was triggered by this import
+
+    angular:styles/global:styles:3:8:
+[37m      3 │ @import [32m'client/styles.scss'[37m;
+        ╵         [32m~~~~~~~~~~~~~~~~~~~~[0m
+
+
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mDeprecation[0m [1m[35m[plugin angular-sass][0m
+
+    client/assets/partials/_bootstrap-compat.scss:452:18:
+[37m      452 │     border-color: [32m[37mdarken($secondary, 8%);
+          ╵                   [32m^[0m
+
+
+  Global built-in functions are deprecated and will be removed in Dart Sass 3.0.0.
+  Use color.adjust instead.
+  
+  More info and automated migrator: [4mhttps://sass-lang.com/d/import[0m
+
+  The plugin "angular-sass" was triggered by this import
+
+    angular:styles/global:styles:3:8:
+[37m      3 │ @import [32m'client/styles.scss'[37m;
+        ╵         [32m~~~~~~~~~~~~~~~~~~~~[0m
+
+
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mDeprecation[0m [1m[35m[plugin angular-sass][0m
+
+    client/assets/partials/_bootstrap-compat.scss:452:18:
+[37m      452 │     border-color: [32m[37mdarken($secondary, 8%);
+          ╵                   [32m^[0m
+
+
+  darken() is deprecated. Suggestions:
+  
+  color.scale($color, $lightness: -10.5154639175%)
+  color.adjust($color, $lightness: -8%)
+  
+  More info: [4mhttps://sass-lang.com/d/color-functions[0m
+
+  The plugin "angular-sass" was triggered by this import
+
+    angular:styles/global:styles:3:8:
+[37m      3 │ @import [32m'client/styles.scss'[37m;
+        ╵         [32m~~~~~~~~~~~~~~~~~~~~[0m
+
+
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mDeprecation[0m [1m[35m[plugin angular-sass][0m
+
+    client/assets/partials/_bootstrap-compat.scss:462:22:
+[37m      462 │     background-color: [32m[37mdarken($text-primary, 8%);
+          ╵                       [32m^[0m
+
+
+  Global built-in functions are deprecated and will be removed in Dart Sass 3.0.0.
+  Use color.adjust instead.
+  
+  More info and automated migrator: [4mhttps://sass-lang.com/d/import[0m
+
+  The plugin "angular-sass" was triggered by this import
+
+    angular:styles/global:styles:3:8:
+[37m      3 │ @import [32m'client/styles.scss'[37m;
+        ╵         [32m~~~~~~~~~~~~~~~~~~~~[0m
+
+
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mDeprecation[0m [1m[35m[plugin angular-sass][0m
+
+    client/assets/partials/_bootstrap-compat.scss:462:22:
+[37m      462 │     background-color: [32m[37mdarken($text-primary, 8%);
+          ╵                       [32m^[0m
+
+
+  darken() is deprecated. Suggestions:
+  
+  color.scale($color, $lightness: -36.7567567568%)
+  color.adjust($color, $lightness: -8%)
+  
+  More info: [4mhttps://sass-lang.com/d/color-functions[0m
+
+  The plugin "angular-sass" was triggered by this import
+
+    angular:styles/global:styles:3:8:
+[37m      3 │ @import [32m'client/styles.scss'[37m;
+        ╵         [32m~~~~~~~~~~~~~~~~~~~~[0m
+
+
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mDeprecation[0m [1m[35m[plugin angular-sass][0m
+
+    client/assets/partials/_bootstrap-compat.scss:463:18:
+[37m      463 │     border-color: [32m[37mdarken($text-primary, 8%);
+          ╵                   [32m^[0m
+
+
+  Global built-in functions are deprecated and will be removed in Dart Sass 3.0.0.
+  Use color.adjust instead.
+  
+  More info and automated migrator: [4mhttps://sass-lang.com/d/import[0m
+
+  The plugin "angular-sass" was triggered by this import
+
+    angular:styles/global:styles:3:8:
+[37m      3 │ @import [32m'client/styles.scss'[37m;
+        ╵         [32m~~~~~~~~~~~~~~~~~~~~[0m
+
+
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mDeprecation[0m [1m[35m[plugin angular-sass][0m
+
+    client/assets/partials/_bootstrap-compat.scss:463:18:
+[37m      463 │     border-color: [32m[37mdarken($text-primary, 8%);
+          ╵                   [32m^[0m
+
+
+  darken() is deprecated. Suggestions:
+  
+  color.scale($color, $lightness: -36.7567567568%)
+  color.adjust($color, $lightness: -8%)
+  
+  More info: [4mhttps://sass-lang.com/d/color-functions[0m
+
+  The plugin "angular-sass" was triggered by this import
+
+    angular:styles/global:styles:3:8:
+[37m      3 │ @import [32m'client/styles.scss'[37m;
+        ╵         [32m~~~~~~~~~~~~~~~~~~~~[0m
+
+
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mDeprecation[0m [1m[35m[plugin angular-sass][0m
+
+    client/assets/partials/_bootstrap-compat.scss:606:9:
+[37m      606 │   color: [32m[37mdarken($secondary, 25%);
+          ╵          [32m^[0m
+
+
+  Global built-in functions are deprecated and will be removed in Dart Sass 3.0.0.
+  Use color.adjust instead.
+  
+  More info and automated migrator: [4mhttps://sass-lang.com/d/import[0m
+
+  The plugin "angular-sass" was triggered by this import
+
+    angular:styles/global:styles:3:8:
+[37m      3 │ @import [32m'client/styles.scss'[37m;
+        ╵         [32m~~~~~~~~~~~~~~~~~~~~[0m
+
+
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mDeprecation[0m [1m[35m[plugin angular-sass][0m
+
+    client/assets/partials/_bootstrap-compat.scss:606:9:
+[37m      606 │   color: [32m[37mdarken($secondary, 25%);
+          ╵          [32m^[0m
+
+
+  darken() is deprecated. Suggestions:
+  
+  color.scale($color, $lightness: -32.8608247423%)
+  color.adjust($color, $lightness: -25%)
+  
+  More info: [4mhttps://sass-lang.com/d/color-functions[0m
+
+  The plugin "angular-sass" was triggered by this import
+
+    angular:styles/global:styles:3:8:
+[37m      3 │ @import [32m'client/styles.scss'[37m;
+        ╵         [32m~~~~~~~~~~~~~~~~~~~~[0m
+
+
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mDeprecation[0m [1m[35m[plugin angular-sass][0m
+
+    client/styles.scss:22:8:
+[37m      22 │ @import [32m[37m'./assets/lightning-admin';
+         ╵         [32m^[0m
+
+
+  Sass @import rules are deprecated and will be removed in Dart Sass 3.0.0.
+  
+  More info and automated migrator: [4mhttps://sass-lang.com/d/import[0m
+
+  The plugin "angular-sass" was triggered by this import
+
+    angular:styles/global:styles:3:8:
+[37m      3 │ @import [32m'client/styles.scss'[37m;
+        ╵         [32m~~~~~~~~~~~~~~~~~~~~[0m
+
+
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mDeprecation[0m [1m[35m[plugin angular-sass][0m
+
+    client/styles.scss:25:8:
+[37m      25 │ @import [32m[37m'animate.css/animate.min';
+         ╵         [32m^[0m
+
+
+  Sass @import rules are deprecated and will be removed in Dart Sass 3.0.0.
+  
+  More info and automated migrator: [4mhttps://sass-lang.com/d/import[0m
+
+  The plugin "angular-sass" was triggered by this import
+
+    angular:styles/global:styles:3:8:
+[37m      3 │ @import [32m'client/styles.scss'[37m;
+        ╵         [32m~~~~~~~~~~~~~~~~~~~~[0m
+
+
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mbundle initial exceeded maximum budget. Budget 500.00 kB was not met by 455.33 kB with a total of 955.33 kB.[0m
+
+
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mModule 'sweetalert2' used by 'client/app/modules/settings/components/settings-page/settings-page.component.ts' is not ESM[0m
+
+  CommonJS or AMD dependencies can cause optimization bailouts.
+  For more information see: [4mhttps://angular.dev/tools/cli/build#configuring-commonjs-dependencies[0m
+
+
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mModule 'bcryptjs' used by 'client/app/modules/profile/components/profile-page/profile-page.component.ts' is not ESM[0m
+
+  CommonJS or AMD dependencies can cause optimization bailouts.
+  For more information see: [4mhttps://angular.dev/tools/cli/build#configuring-commonjs-dependencies[0m
+
+
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mModule 'base64-js' used by 'Backend/Shared/file-system.service.ts' is not ESM[0m
+
+  CommonJS or AMD dependencies can cause optimization bailouts.
+  For more information see: [4mhttps://angular.dev/tools/cli/build#configuring-commonjs-dependencies[0m
+
+
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mModule 'dayjs' used by 'Backend/Customers/db-customers.service.ts' is not ESM[0m
+
+  CommonJS or AMD dependencies can cause optimization bailouts.
+  For more information see: [4mhttps://angular.dev/tools/cli/build#configuring-commonjs-dependencies[0m
+
+[39m[22m
+Output location: C:\My Files\My REPOS\Jewellery-Store-Management-System-Electron\dist
+

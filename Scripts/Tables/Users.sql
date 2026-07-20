@@ -7,7 +7,7 @@ CREATE TABLE `users` (
   `imagePath` TEXT DEFAULT NULL,
   `created_on` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  `last_login_date` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',
+  `last_login_date` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`uid`),
   UNIQUE KEY `users_email` (`email`),
   UNIQUE KEY `users_user_name` (`userName`)

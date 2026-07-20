@@ -1,5 +1,4 @@
 import { Injectable } from '@angular/core';
-import { from, Observable } from 'rxjs';
 import { DatabaseService } from '../Shared/database.service';
 import { OrdersServiceInterface } from 'client/app/interfaces/Orders/orders-service-interface';
 
@@ -11,37 +10,36 @@ export class DbOrdersService implements OrdersServiceInterface {
   constructor(private databaseService:DatabaseService) { }
 
   getSalesAndLabour(timeInterval:number) {
-    return from(this.databaseService.execute("call get_sales_labour(?);",[
+    return this.databaseService.execute("call get_sales_labour(?);",[
       timeInterval
-    ]))
+    ])
   }
 
   getRecentOrders(numberOfOrders:number) {
-    return from(this.databaseService.execute("call get_recent_orders(?);", [
+    return this.databaseService.execute("call get_recent_orders(?);", [
       numberOfOrders
     ])
-    )
   }
 
   getTotalRevenueInLast6Months() {
-    return from(this.databaseService.query("call get_revenue_of_six_months();"))
+    return this.databaseService.query("call get_revenue_of_six_months();")
   }
 
-  getAllOrders(itemsPerPage:number , pageNumber:number, searchQuery= ''):Observable<any> {
-    return from(this.databaseService.execute('call get_all_orders(?, ?, ?);',
+  getAllOrders(itemsPerPage:number , pageNumber:number, searchQuery= ''): Promise<any> {
+    return this.databaseService.execute('call get_all_orders(?, ?, ?);',
     [
       itemsPerPage,
       pageNumber,
       searchQuery
-    ]))
+    ])
   }
 
-  getOrderDetails(orderGuid:string):Observable<any> {
-    return from(this.databaseService.query(`call get_order_details('${orderGuid}');`))
+  getOrderDetails(orderGuid: string): Promise<any> {
+    return this.databaseService.execute('call get_order_details(?);', [orderGuid]);
   }
 
   saveOrder(orderData:any) {
-    return from(this.databaseService.execute("call save_order(?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",[
+    return this.databaseService.execute("call save_order(?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",[
       orderData.totalAmountWithGST,
       orderData.totalAmountWithoutGst,
       orderData.totalDiscount,
@@ -52,22 +50,22 @@ export class DbOrdersService implements OrdersServiceInterface {
       orderData.amountPaid,
       orderData.paymentMethod,
       orderData.productsData
-    ]))
+    ])
   }
 
   cancelOrder(orderGuid:string) {
-    return from(this.databaseService.execute("call cancel_order(?);",[
+    return this.databaseService.execute("call cancel_order(?);",[
       orderGuid
-    ]))
+    ])
   }
 
   recordPayment(paymentData:any) {
-    return from(this.databaseService.execute("call record_payment(?, ?, ?, ?, ?);",[
+    return this.databaseService.execute("call record_payment(?, ?, ?, ?, ?);",[
       paymentData.orderGuid,
       paymentData.paymentType,
       paymentData.remarks || null,
       paymentData.paymentAmount,
       paymentData.paymentDate
-    ]))
+    ])
   }
 }
