@@ -902,7 +902,122 @@ L / M / N can run in parallel. O is smallest and likely folds into N.
 
 ### 12.1 Workstream K — status
 
-_TBD_
+**Landed 2026-07-20 on parent branch `integration/modernization-2026-07-17`.** Phase 2 backend foundation: every SP, table extension, TS service, and IPC channel the parallel P2 UI workstreams (L / M / N / O) need. Client submodule untouched (frozen for this workstream, per rules).
+
+**Prereq — Workstream A backfill.** Phase 1's schema-and-cart-engine commit (`8b54afd`) had landed on `main` but the integration branch had forked before it. Cherry-picked onto the integration branch as a preserved unit (`4214334`) so this workstream can build on the promised Phase 1 foundation. Behaviour identical to `main`; the integration branch's REDESIGN_PLAN.md was preserved during the pick.
+
+**Tables extended (extend + drop-and-recreate, no migrations):**
+
+- `Scripts/Tables/SavingSchemes.sql` — rewrote around plan-mandated column names: `planName`, `tenureMonths` (default 11), `bonusInstallments` (default 1), `startDate`, `expectedMaturityDate`, `totalPaid`, `status ENUM('active','matured','redeemed','forfeited')`, `redeemedInvoiceId` / `redeemedAmount` / `redeemedAt`, `forfeitedAt` / `forfeitReason`. FK to `invoices` for redemption.
+- `Scripts/Tables/SavingSchemeInstallments.sql` — rewrote: `installmentGuid`, `paymentMode` ENUM, `refNumber`, `receiptDate`, `actorUserId`. Unique key on `(schemeId, installmentNumber)`.
+- `Scripts/Tables/Karigars.sql` — **new table**. Guid, name, phone, address, remarks, soft-delete. Unique on `(name, phone)`.
+- `Scripts/Tables/KarigarJobCards.sql` — rewrote with FK to `karigars` (was karigarName string), plus new columns: `jobGuid`, `issuedStones` JSON, `receivedNetWeight`, `receivedStoneWeight`, `wastagePercentAllowed`, `wastageGramsActual`, `makingCharge`, settlement columns (amount / payment mode / ref / settledAt), `productId` FK, `description`. Status ENUM narrowed to `issued/received/settled/cancelled`.
+- `Scripts/Tables/KarigarLedger.sql` — rewrote around plan schema: `ledgerGuid`, `karigarId` FK, `jobId` FK (nullable), `entryType ENUM('issue','receive','payment','adjustment')`, `direction`, `weightGrams`, `amount`, `txnDate`, `notes`, `actorUserId`.
+- `Scripts/Tables/Invoices.sql` — added `savingSchemeRedemption` JSON column (was documented as existing in plan section 7.1 but never actually added at Phase 1). Written by `save_order` when a redemption is linked.
+- `Scripts/Tables/ShopSettings.sql` — added `backupDir` (nullable path) + `defaultPrintVariant ENUM('a4','thermal80')` for L/N to consume.
+- `docker/init/01-init-db.sh` — TABLES array gained `Karigars.sql` before `KarigarJobCards.sql` so FK resolution is order-safe.
+
+**Stored procedures added (28 new, grouped by module):**
+
+- **OldGold** (3, new folder `Scripts/Stored-Procedures/OldGold/`): `save_old_gold_receipt`, `get_old_gold_receipts_by_customer`, `get_old_gold_receipt_by_invoice`.
+- **SavingSchemes** (7, new folder): `enroll_saving_scheme`, `record_scheme_installment` (with `p_allow_multiple_this_month` corner-case flag), `redeem_saving_scheme`, `forfeit_saving_scheme` (admin-only via `_authorize`), `get_saving_scheme_details`, `get_all_saving_schemes`, `get_saving_schemes_by_customer`.
+- **Karigar** (10, new folder): `add_karigar`, `get_all_karigars`, `update_karigar`, `delete_karigar` (soft), `issue_karigar_job`, `receive_karigar_job`, `settle_karigar_job`, `get_karigar_job_card_details`, `get_all_karigar_jobs`, `get_karigar_ledger`. Ledger entries written automatically on issue/receive/settle for reconciliation.
+- **Reports** (5, new folder): `get_day_book`, `get_sales_register`, `get_stock_summary_by_purity`, `get_gstr1_export_rows`, `get_low_stock_by_category`. All aggregations pushed into SQL — no TypeScript rollup layer.
+- **Auth** (1): `get_user_permissions` returns per-user `{ type, permissions, defaultPermissions }` with role-based defaults baked in (admin / manager / employee — see permission map below).
+- **Users** (4, added under existing folder): `add_user`, `update_user`, `delete_user`, `get_all_users`.
+- **ShopSettings**: `reset_invoice_counter` (SP referenced by E's settings tab; RBAC-guarded; owns audit-log entry).
+- **MetalRates**: `get_metal_rates_history` (SP referenced by E's rates tab).
+
+**Existing SPs extended:**
+
+- `save_order` — accepts new tail params `p_old_gold_receipt_guid`, `p_saving_scheme_guid`, `p_actorUserId`. If receipt-guid present, links `oldgoldreceipts.invoiceId` and pulls the credit into `invoices.oldGoldCreditAmount`. If scheme-guid present, calls the redemption inline (updates scheme status + writes `savingSchemeRedemption` JSON blob on the invoice + treats the corpus as pre-paid so `isPaymentDone` calc includes it). Existing flows (no receipt / no scheme) pass unchanged.
+- `cancel_order` — accepts `p_actorUserId`; employee callers rejected with `SIGNAL SQLSTATE '45000'` message `Forbidden: canCancelInvoice`. Also RESIGNALs on inner errors instead of swallowing.
+- `delete_customer`, `delete_product` — accept `p_actorUserId`; employee callers rejected. Audit-log entries added.
+- `save_metal_rates` — RBAC-guards via existing `p_setByUserId`; employees rejected. RESIGNAL instead of returning a message row.
+- `save_shop_settings` — accepts trailing `p_backupDir`, `p_defaultPrintVariant`, `p_actorUserId`. Employee callers rejected.
+
+**RBAC / _authorize approach.** Rather than a shared helper (MySQL SPs can't share helpers cheaply), every destructive or cost-revealing SP does an inline lookup: `SELECT type INTO l_actor_type FROM users WHERE uid = p_actorUserId; IF l_actor_type = 'employee' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Forbidden: <permission>'`. Guards live in: `cancel_order`, `delete_customer`, `delete_product`, `save_shop_settings`, `save_metal_rates`, `reset_invoice_counter`, `forfeit_saving_scheme`, `add_user`, `update_user`, `delete_user`. `forfeit_saving_scheme` + `add_user/update_user/delete_user` gate on `<> 'admin'` (not `= 'employee'`) because manager is also excluded there per the default map. Smoke-tested: all four rejection cases raise SIGNAL as expected; admin caller passes through.
+
+**Canonical permission map (`get_user_permissions`, `Backend/Shared/permissions.service.ts`):**
+
+- `admin`: all eight flags true.
+- `manager`: everything **except** `canBackup`, `canManageUsers`, `canForfeitSavingScheme`.
+- `employee`: all eight flags false.
+
+Users with an explicit `permissions` JSON blob override the role-default; users with NULL fall through to the role-default. Seed data leaves `admin.permissions` NULL to exercise the fallback path; `manager` and both `cashier` accounts carry explicit maps that mirror the defaults.
+
+**TypeScript service layer (Angular / renderer-side, wired through `DatabaseService.execute`):**
+
+- `Backend/OldGold/db-old-gold.service.ts` — `saveReceipt`, `getReceiptsByCustomer`, `getReceiptByInvoice`.
+- `Backend/SavingSchemes/db-saving-schemes.service.ts` — `enroll`, `recordInstallment`, `redeem`, `forfeit`, `getDetails`, `getAll`, `getByCustomer`.
+- `Backend/Karigar/db-karigar.service.ts` — full karigar CRUD + job lifecycle (issue / receive / settle) + ledger.
+- `Backend/Reports/db-reports.service.ts` — `getDayBook`, `getSalesRegister`, `getStockSummaryByPurity`, `getGstr1ExportRows` (post-processes into `{ rows, hsnSummary }`), `getLowStockByCategory`.
+- `Backend/Shared/permissions.service.ts` — `getUserPermissions(uid)` with a strict parser that normalises 0/1/true/false and falls back to role defaults; also exports `defaultsForRole()` for UI-side guards.
+- `Backend/Shared/shop-settings.service.ts` — `save()` now accepts `actorUserId`.
+- `Backend/Orders/db-orders.service.ts` — `saveOrder(payload)` gained `oldGoldReceiptGuid`, `savingSchemeGuid`, `actorUserId` on the payload; `cancelOrder(guid, reason, actorUserId)`.
+
+**Backend/Shared/backup.service.ts + src-electron/backup.js.** Two files for the same module — the `.ts` sits under `Backend/Shared/` alongside the rest of the domain services and is a natural home for the TypeScript signature, but Electron's main process consumes the CommonJS mirror at `src-electron/backup.js`. Both use AES-256-GCM with scrypt-derived 32-byte keys (16-byte salt, 12-byte IV per archive). Archive header layout: `[version:1][salt:16][iv:12][ciphertext][authTag:16]`. `createBackup(config, passphrase, targetDir)` spawns `mysqldump --single-transaction --routines --triggers --events --column-statistics=0`, encrypts the output, deletes the raw `.sql`. `restoreBackup(config, archivePath, passphrase)` decrypts to a temp file, pipes it into `mysql` client, then unlinks. `listBackups(dir)` and `deleteBackup(path)` complete the set. **Prereq: `mysqldump` + `mysql` client binaries must be on host PATH.** Error message is friendly when the binary is missing (`ENOENT` → surfaced as "Install MySQL client tools"). Windows note: MySQL 8 installer bundles them at `C:\Program Files\MySQL\MySQL Server 8.0\bin\`; users need to add that to PATH or (v1.5) we ship a packaged binary.
+
+**IPC channels added (all on `window.electronAPI.*`, `contextIsolation:true`, `nodeIntegration:false` preserved):**
+
+- `oldGold.saveReceipt`, `oldGold.getReceiptsByCustomer`, `oldGold.getReceiptByInvoice`.
+- `savingSchemes.enroll`, `savingSchemes.recordInstallment`, `savingSchemes.redeem`, `savingSchemes.forfeit`, `savingSchemes.getDetails`, `savingSchemes.getAll`, `savingSchemes.getByCustomer`.
+- `karigar.addKarigar`, `karigar.getAllKarigars`, `karigar.updateKarigar`, `karigar.deleteKarigar`, `karigar.issueJob`, `karigar.receiveJob`, `karigar.settleJob`, `karigar.getJobDetails`, `karigar.getAllJobs`, `karigar.getLedger`.
+- `reports.dayBook`, `reports.salesRegister`, `reports.stockSummaryByPurity`, `reports.gstr1Export`, `reports.lowStockByCategory`.
+- `backup.create`, `backup.restore`, `backup.list`, `backup.delete` (owner-only via a client-side `actorType` argument for the delete case; the server-side guard is `mysqldump` PATH + admin-only manual flow — client should also check `canBackup`).
+- `auth.getUserPermissions`.
+
+**Seed data extensions (`Scripts/Seed/seed-data.sql`):**
+
+- 7 karigars (Ramesh Sonar, Suresh Karigar, Mahesh Patel, Deepak Jangid, Nitin Chhipa, Kishan Bhai, Prakash Meena).
+- 12 job cards spanning the last 55 days across all statuses (issued / received / settled), covering a mix of gold + silver + diamond work with `issuedStones` JSON blobs.
+- 33 ledger entries auto-derived from the job cards (issue debit / receive credit / making-charge accrual / settlement payment).
+- 10 saving schemes across 10 different customers — 7 active, 2 matured, 1 forfeited, 1 subsequently redeemed against invoice 1 as a demonstration.
+- 49 installment rows generated to match each scheme's `totalPaid` (payment mode rotates cash / online / upi; ref numbers stamped for the non-cash modes).
+- 3 additional old-gold receipts (2 unlinked, 1 tied to invoice `RAD/2026/00002` with its `oldGoldCreditAmount` bumped).
+- `Users.permissions`: admin left NULL, manager + both cashiers carry explicit maps that mirror the defaults from `get_user_permissions`.
+
+Everything is idempotent for a fresh `docker compose down -v && docker compose up -d --build`.
+
+**Verification.**
+
+- `docker compose down -v && docker compose up -d --build` — clean end-to-end. Logs green (only `mysql --skip-host-cache` deprecation + `CA certificate self-signed` warnings, both pre-existing).
+- Manual SP smoke tests via `docker exec ... mysql`:
+  - `CALL enroll_saving_scheme(<guid>, 'Golden Harvest', 5000, 11, 1, 1);` → schemeGuid + startDate + expectedMaturityDate returned.
+  - `CALL record_scheme_installment(<guid>, 5000, 'cash', NULL, NULL, 1, 1);` → increments totalPaid + installmentNumber.
+  - `CALL issue_karigar_job(<guid>, NULL, 15.5, '916', NULL, ...);` → jobGuid returned + ledger row auto-written.
+  - `CALL save_old_gold_receipt(<guid>, NULL, 5.5, 91.6, '916', 3.0, 7150.0, 39325.0, 'Test', 1);` → receiptGuid + correct receiptId returned.
+  - `CALL get_day_book('2026-06-01', '2026-07-21');` → per-day rollup by payment mode.
+  - `CALL get_sales_register('2026-06-01', '2026-07-21', NULL, NULL);` → wide format with GSTIN, place-of-supply, per-invoice split.
+  - `CALL get_stock_summary_by_purity(NULL);` → per-purity rollup with unit count + gross/net weight + tag/cost valuation.
+  - `CALL get_gstr1_export_rows('2026-07');` → per-invoice rows + HSN summary rollup.
+  - `CALL get_user_permissions(1);` → admin, permissions=NULL falls through to full-true default map.
+  - `CALL get_user_permissions(3);` → employee, all flags false via explicit map.
+  - `CALL cancel_order(<guid>, 'test', 3);` → **fails** with `SIGNAL 45000 Forbidden: canCancelInvoice`. Same result for `delete_customer`, `save_metal_rates`, `forfeit_saving_scheme` when actor is uid=3. Admin (uid=1) passes through.
+- `npx ng build --configuration=development` — PASS. No new warnings; only the pre-existing `NG8107` optional-chain style notes in a few templates.
+- `npx ng test --watch=false --browsers=ChromeHeadless` — **15/15 SUCCESS**.
+- `node -e "require('./src-electron/backup.js')"` — loads clean. `node --check` on main.js + preload.js clean.
+- Backup service smoke test (list + delete against a synthetic `.enc` file): PASS.
+
+**Frontend interfaces UI workstreams should sync (L / M / N / O — no client changes yet):**
+
+- `client/app/interfaces/OldGold/*.ts` — mirror `Backend/Shared/interfaces/old-gold.ts` (`OldGoldReceipt`, `SaveOldGoldReceiptPayload`).
+- `client/app/interfaces/SavingSchemes/*.ts` — mirror `Backend/Shared/interfaces/saving-scheme.ts` (all payload + view interfaces).
+- `client/app/interfaces/Karigar/*.ts` — mirror `Backend/Shared/interfaces/karigar.ts`.
+- `client/app/interfaces/Reports/*.ts` — mirror the four report interfaces + `Gstr1ExportPayload`.
+- `client/app/interfaces/Auth/user-permissions.ts` — mirror `Backend/Shared/interfaces/user-permissions.ts`.
+- New Angular services under `client/app/shared/services/{OldGold,SavingSchemes,Karigar,Reports,Backup}/…` that consume `window.electronAPI.*` following the `MetalRatesService` / `ShopSettingsService` pattern from Phase 1.
+
+**Deferred / documented, not blocking:**
+
+1. **`mysqldump` binary on Windows.** Not on PATH by default. Users installing the packaged Electron app will need MySQL client tools installed and on PATH. For v1.5 we should ship the `.exe` inside the Electron resources folder and shell out to the packaged path instead of relying on PATH. Backup UI (Workstream N) should surface a clear "MySQL client tools not detected — [install guide]" state when `backup.create` fails with `ENOENT`.
+2. **RCM vs Rule 32(5) old-gold GST treatment.** Not touched — schema captures gross + purity + credit but no tax treatment. Workstream L (old-gold cart line) will surface the toggle in `TaxSlabs` / `ShopSettings`.
+3. **e-invoice IRP integration.** `Invoices.isEinvoice`, `irn`, `qrCodeData` remain settable but the SP doesn't call any IRP; still deferred to a real-pilot need.
+4. **Karigar → auto stock movement.** When a job settles with `productId` set, we should optionally insert a `StockMovements` row of type `karigar_receive`. Not wired yet — L can add on the settle flow, since it's a UI concern about which product ID to reference.
+5. **`AuditLog` retention policy.** No cron / purge job; the table grows unbounded. Fine for Phase 2 pilots but worth flagging for post-launch.
+6. **Interface package `mysqldump`.** The plan asks that no new npm packages be added; `child_process` + built-in `crypto` are used. `mysqldump` is a system binary, not an npm package — no new dependencies added to `package.json`.
+7. **`get_sales_register` invoice-status filter granularity.** Values allowed: `paid`, `pending`, `cancelled`. Workstream N should render this as a segmented control.
+8. **P2 UI clients still consume `DbBridge` fallback.** Every new SP is reachable both via the dedicated IPC channel and via a generic `db.execute('call foo(?)', [...])` fallback if the channel isn't wired yet. This mirrors the Phase 1 pattern (E's shop-settings service uses the same trick).
 
 ### 12.2 Workstream L — status
 
