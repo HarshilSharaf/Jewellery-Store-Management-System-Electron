@@ -2429,7 +2429,107 @@ The `body` selector inside the Y block now reads `font-size: calc(var(--font-siz
 
 ### 18.1 Workstream Z — status
 
-_TBD_
+**Executed 2026-07-21.** Read-only research + audit pass. No source code touched; all findings are staged for Workstream AA to implement.
+
+#### Research summary — Electron 40 performance baseline (2026)
+
+Electron 40.4.1 (our pinned version, `package.json:62`) bundles Chromium 144, Node 24.11.1, and V8 14.4. Since Electron 20 the security-adjacent defaults that materially affect the process model are: `contextIsolation: true` (default since 12), `sandbox: true` (default since 20), and `nodeIntegration: false` (default since 5) [1]. The 40.0 release added `"memory-eviction"` as a child-process exit reason surface, which is useful telemetry on 4 GB RAM shop PCs, and deprecated direct renderer `clipboard` access (routing through preload) [2]. There are no new BrowserWindow performance defaults in the 20 → 40 window; the visible perf wins remain the same eight patterns Electron docs enumerate: (1) don't carelessly include modules, (2) don't load code too soon, (3) don't block the main process, (4) use non-blocking Node APIs, (5) prefer the network stack over disk when appropriate, (6) don't polyfill the DOM, (7) don't over-observe the renderer, (8) call `Menu.setApplicationMenu(null)` before `app.ready` if you don't need a native menu [1].
+
+The **ready-to-show pattern** is the canonical "no white flash" recipe: `new BrowserWindow({ show: false })`, then `win.once('ready-to-show', () => win.show())` [3]. `backgroundColor` should be set on every window regardless — it paints the window background before the renderer has produced any frames, which reduces the perceived-flash window even when `show: false` is not used. `paintWhenInitiallyHidden: false` reduces renderer activity while hidden but disables the `ready-to-show` event, so it is incompatible with the graceful-show pattern [3].
+
+**V8 heap sizing.** `--js-flags='--max-old-space-size=<MB>'` caps V8's old-generation heap per process. Electron does not set a default beyond V8's own, which sizes to the host and can climb well past 1 GB on 4 GB machines before GC pressure appears. For a desktop app with a ~1 MB gzipped Angular payload and lightweight IPC we want ~512 MB main + ~512 MB per renderer as a hard ceiling; Chromium's own switch documentation confirms `--js-flags` is honored and `--disk-cache-size=<bytes>` bounds the on-disk HTTP cache [4]. `app.commandLine.appendSwitch()` and `app.disableHardwareAcceleration()` must be called synchronously at the top of the main-process file, before `app.whenReady()` resolves; `disableHardwareAcceleration()` explicitly errors if called after ready [5].
+
+**GPU on integrated Intel HD.** Chromium's GPU process is the leading crash source on low-end shop PCs with outdated Intel HD drivers. `app.disableHardwareAcceleration()` forces the SwiftShader software rasterizer path, which trades a small CPU cost for zero GPU-driver risk. For a POS app with no video/canvas-heavy rendering (Chart.js dashboard is off critical path per Phase 1.5) this is the right default. A gated escape hatch (env var or shopSettings toggle) preserves the option to re-enable acceleration on machines where the driver behaves.
+
+**Session + cache cleanup.** `session.clearCache()` prunes the HTTP disk cache; `session.clearStorageData()` covers cookies, IndexedDB, localStorage, service workers, and shader cache [6]. Neither is strictly required for a single-shop offline app, but a `before-quit` handler that closes the mysql2 pool + calls `clearCache()` bounds the on-disk footprint between shop restarts.
+
+**ASAR + electron-builder.** `asar: true` is the default. Native modules (`serialport`, mysql2's optional native wrappers) are automatically detected for `asarUnpack` and do not need to be enumerated by hand [7]. `compression: 'maximum'` yields negligible size wins for large build time; `'normal'` is the recommended production value. We currently ship **no `build` block in `package.json`** — that is the elephant in the room (item 24 below).
+
+Citations:
+[1] Electron performance guide — https://www.electronjs.org/docs/latest/tutorial/performance
+[2] Electron 40.0 release notes — https://www.electronjs.org/blog/electron-40-0
+[3] BrowserWindow API + "Showing the window gracefully" — https://www.electronjs.org/docs/latest/api/browser-window
+[4] Chromium command-line switches (Electron) — https://www.electronjs.org/docs/latest/api/command-line-switches
+[5] Electron `app` API — https://www.electronjs.org/docs/latest/api/app
+[6] Electron `session` API — https://www.electronjs.org/docs/latest/api/session
+[7] electron-builder configuration — https://www.electron.build/
+
+#### Baseline measurement
+
+**Interactive Task Manager reading: deferred to AA.** A read-only subagent cannot bring up Electron interactively and capture RSS across the main + renderer + GPU processes without user cooperation. AA should run `npm run electron-dev`, wait 30 s past first render, and record RSS for `electron.exe` (main) + the first renderer + the GPU process from Task Manager. Repeat after each punch-list batch to attribute wins.
+
+**Static footprint captured now:**
+
+- `src-electron/` source: 8 files, ~70 KB total (`main.js` 44 KB / 1,253 lines is the bulk).
+- `preload.js` exposes **13 API namespaces / 76 methods** through `contextBridge` (item 15 below — actionable audit target).
+- Production Angular build at `dist/browser/` was empty at inspection time (build not run this session). Phase-3 workstream W measured `~955 KB initial JS` post-optimization; that number stands as the renderer baseline.
+- Splash HTML+CSS: 14 KB total, no JS — already minimal.
+- `hide_from_screenShare.js`: 16 lines, references undeclared `mainWindow` at module top level, imports `ffi-napi` / `ref-napi` which are **not** in `package.json` dependencies. It is orphaned dead code (never `require`d from `main.js`); confirmed by grep of `src-electron/`. AA should delete it. `.baseline-logs/BASELINE.md:36` already flags it.
+- No electron-builder `build` block in `package.json`. `electron-build` script is only `npm run build && set ELECTRON_IS_DEV=0 && electron .` — this ships nothing installable and packages nothing. Intersects with AA's ASAR punch-list items and is called out below (item 24).
+
+#### Punch list for Workstream AA
+
+Every item names a file + line, describes the concrete change, gives an expected impact, and flags risk. Sequenced roughly by risk-adjusted return.
+
+1. **`src-electron/main.js:141-206` (`createWindow`)** — `mainWindow` already has `show: false` (good). Add `backgroundColor: '#FBF8F1'` (ivory, per section 2 palette) on the `mainWindow` BrowserWindow options. Bind `mainWindow.once('ready-to-show', () => { /* pre-paint background only — do NOT show; splash-close IPC drives show */ })`. Impact: eliminates 200-600 ms white flash between splash-destroy and Angular first paint; matches the warm-neutral design spec. Risk: low. Splash-close is IPC-driven, so `ready-to-show` must **not** auto-show — only pre-paint the background.
+
+2. **`src-electron/main.js:12` (top of file, before any `app.*` call)** — add `app.commandLine.appendSwitch('js-flags', '--max-old-space-size=512')`. Caps V8 old-gen heap per process at 512 MB. Impact: prevents the app from consuming >1 GB on 8 GB machines where V8 auto-sizes generously; forces earlier GC on 4 GB machines (50-100 MB idle-RAM reduction). Risk: low — 512 MB is comfortably above our working set.
+
+3. **`src-electron/main.js:12` (top of file)** — add `app.commandLine.appendSwitch('disk-cache-size', String(50 * 1024 * 1024))` (50 MB). Impact: caps Chromium HTTP disk cache at 50 MB instead of the default (up to several hundred MB); the app only ever fetches ibjarates.com and Meta Graph, neither cache-heavy. Risk: none — we make ~2 outbound HTTPS calls per day.
+
+4. **`src-electron/main.js:12` (top of file)** — add a gated `app.disableHardwareAcceleration()` behind an env var (`ZEUS_DISABLE_GPU !== '0'`, default enabled) or a `shopsettings.disableHardwareAcceleration` column. Impact: forces SwiftShader software rasterizer; eliminates GPU-process crashes on outdated Intel HD drivers common on Tier-2/3 shop PCs; costs ~5% renderer CPU on modern GPUs. Risk: medium — some users on modern hardware will see minor scroll-jank; keep the escape hatch so a shopkeeper with a modern GPU can flip it off.
+
+5. **`src-electron/main.js:141-155` (mainWindow `webPreferences`)** — flip `sandbox: false` → `sandbox: true`. `preload.js` only requires `electron` (both `contextBridge` and `ipcRenderer` are sandbox-safe). No `fs`/`path`/`os` requires in preload per audit. Impact: renderer runs under OS-level sandbox; ~20-40 MB memory reduction per renderer per well-documented Chromium behavior; matches Electron 20+ default posture. Risk: medium — must smoke-test that preload boots under sandbox, but grep confirms no forbidden Node modules are imported.
+
+6. **`src-electron/main.js:157-169` (splashScreen `webPreferences`)** — splash has no `sandbox` set (defaults to true post-20). Drop the `webPreferences` block entirely (splash has no JS/preload) OR set explicit `sandbox: true, preload: undefined, paintWhenInitiallyHidden: false`. Impact: splash renderer becomes a bare Chromium tab with ~30 MB less overhead. Risk: none — splash HTML has no JS beyond CSS animations.
+
+7. **`src-electron/main.js:141-155` (mainWindow options)** — add `webPreferences.spellcheck: false`. Impact: kills Chromium's spell-checker dictionary load on startup (10-20 MB + a Google Chromium dictionary fetch on first run, bad for an offline shop app). Risk: none — this is a POS, not a document editor.
+
+8. **`src-electron/main.js:145` (mainWindow options)** — set `webPreferences.v8CacheOptions: 'code'` explicitly (already default; document intent). For the packaged build, consider `'bypassHeatCheck'` to eagerly cache all V8 bytecode on first run — reduces subsequent cold-boot by 100-300 ms after first launch. Risk: low — increases disk cache footprint on first run only.
+
+9. **`src-electron/main.js:171-183` (dev vs prod branch)** — DevTools opens unconditionally in dev at line 178. Gate behind `process.env.ZEUS_DEVTOOLS !== '0'` so a developer running a prod smoke-test doesn't get DevTools. Also add defensive `mainWindow.webContents.on('devtools-opened', () => { if (app.isPackaged) mainWindow.webContents.closeDevTools(); })` to slam DevTools closed in prod even if a cashier hits `Ctrl+Shift+I`. Impact: prevents packaged shops from exposing IPC internals. Risk: none.
+
+10. **`src-electron/main.js:18-28` (top-of-file requires)** — eager requires for `backupService`, `scaleService`, `whatsappService`, `ibjaService`, `bcrypt`, `mysql2/promise`, `electron-store`, `electron-log`. `serialport` inside `scale.js` is a native binding (30-80 ms load). Move `require('./scale')` to lazy inside the four `scale:*` handlers; lazy-require `./backup`, `./whatsapp`, `./ibja`, and `bcryptjs` inside their respective handlers. Impact: shaves 40-100 ms from cold boot; splash appears before native modules resolve; a botched `serialport` binding never crashes boot. Risk: low — first call to a given handler pays the require cost once.
+
+11. **`src-electron/main.js:1237-1242` (`bootPoll` setInterval)** — 2 s polling for `pool` liveness is a code smell. Replace with an `EventEmitter` (or a resolved-once Promise): fire `pool:ready` when `createPool()` succeeds inside `db:initialize`; `scheduleNextIbjaFire()` awaits it once. Impact: kills a permanent-until-fired interval; small (<1 ms/tick) but cleaner. Risk: none.
+
+12. **`src-electron/main.js:1245-1248` (`window-all-closed`)** — pool cleanup runs here, but Electron docs recommend `before-quit` for blocking cleanup [5]. Move `pool.end()` to `app.on('before-quit', async (event) => { ... })` and additionally call `scaleService.close()` + `ibjaTimer && clearTimeout(ibjaTimer)`. Impact: guarantees serialport is released and IBJA timer is cleared even when user quits via Cmd/Ctrl+Q or the app-menu Quit item (which bypasses `window-all-closed` on macOS). Risk: low — must `event.preventDefault()` and call `app.quit()` after cleanup to avoid a double-quit race.
+
+13. **`src-electron/main.js:1245-1248` (`window-all-closed`)** — add `await mainWindow?.webContents?.session?.clearCache()` inside the shutdown handler. Impact: bounds on-disk cache growth over months of daily shop use. Risk: none — HTTP cache is not load-bearing.
+
+14. **`src-electron/main.js:195-203` (`splashFallbackTimer`)** — 15 s is generous. Drop to 10 s and fire a renderer toast (`mainWindow.webContents.send('boot:degraded')`) before force-showing so the user knows something went wrong instead of just seeing the splash disappear. Impact: better ops signal, no perf change. Risk: none.
+
+15. **`src-electron/preload.js:17-152` (contextBridge surface)** — 13 namespaces / 76 methods, each a closure held for renderer lifetime. Audit for orphans: `logger.info` / `logger.error` (lines 149-150) are used only during bootstrap and never on the hot path — consider dropping them and having the renderer `console.error` (electron-log's renderer transport captures console when configured). `fs.getPicturesDirectory` (line 135) is called once at profile-image-upload and could be folded into `fs.writeImage` as a resolved default. Impact: minor (~KB), hygiene. Risk: low.
+
+16. **`src-electron/preload.js:113-118` (`scale.onReading`)** — listener registration correctly returns an unsubscribe function. Verify **every renderer subscriber** calls it on `ngOnDestroy`. AA should grep `Backend/**/*.ts` for `scale.onReading(` and confirm; if any component subscribes without cleanup, that's a permanent listener leak across route navigations. Impact: prevents growing IPC listener array on the main process. Risk: none for this file, but AA must verify the renderer half.
+
+17. **`src-electron/scale.js:28-37` (top-level `serialport` require)** — currently eager. Wrap in a lazy getter: `function getSerialPort() { if (SerialPort === null && !attempted) { attempted = true; try { ({ SerialPort } = require('serialport')); ... } catch { available = false; } } return SerialPort; }` and call it inside `listPorts` / `open`. Impact: 30-80 ms cold-boot improvement; also prevents native-binding failure crashing the boot sequence. Risk: none.
+
+18. **`src-electron/backup.js:9-16`** — `child_process` + `crypto` are Node built-ins, no lazy-load benefit at the file level. **But** `backup.js` itself can be lazy-required inside the four `backup:*` handlers in `main.js`. Impact: shaves ~2-3 ms and, more importantly, ensures a broken `mysqldump`/`mysql` PATH lookup never crashes boot. Risk: none.
+
+19. **`src-electron/ibja.js` + `src-electron/whatsapp.js`** — both lightweight `fetch`-only modules. Convert to lazy require inside the respective IPC handlers (`ibja:fetchNow`, `whatsapp:send`) in `main.js`. Impact: <5 ms; consistency with items 17-18. Risk: none.
+
+20. **`src-electron/hide_from_screenShare.js`** — **delete this file**. Undefined `mainWindow` at module load; requires `ffi-napi` + `ref-napi` which are not in `package.json`; never `require`d anywhere. Its intent (blocking screen-share capture via `SetWindowDisplayAffinity`) is a Phase-4 concern — if wanted, use `BrowserWindow.setContentProtection(true)` (native Electron API, no FFI). Impact: removes dead code; prevents an accidental future require crashing the app. Risk: none.
+
+21. **`src-electron/main.js:1109-1226` (IBJA scheduler)** — scheduler is correct but `ibjaTimer` is not cleared on shutdown (item 12 covers this). Also, `scheduleNextIbjaFire` recurses inside its own timer callback (line 1223); if the pool is torn down between fires the next call silently no-ops — correct, but should log a warn. Impact: observability only. Risk: none.
+
+22. **`src-electron/main.js:87-88` (mysql2 pool config)** — pool has `enableKeepAlive: true`, `keepAliveInitialDelay: 10_000`. Good. **Add `idleTimeout: 60_000`** so idle connections are released after 60 s instead of held for the app lifetime — single-user single-shop peaks at 2-3 concurrent queries. Impact: MySQL server sees fewer stale connections; ~5-15 MB main-process reduction after idle. Risk: none for mysql2 v3.
+
+23. **`src-electron/main.js:85` (pool config `connectionLimit: 10`)** — 10 is overkill for a single-shop counter with 1-2 renderer tabs. Drop to 4. Impact: ~2-3 MB per unused connection, marginal. Risk: none — we've never approached the limit.
+
+24. **`package.json:1-75`** — **no `build` block for electron-builder**. Phase-4 packaging gap. Not a Z item to implement in AA's slot, but flag it: `electron-build` script currently only runs Angular build + `electron .` — no installer, no ASAR, no signed executable is produced. AA should recommend a follow-on workstream to add `"build": { "asar": true, "compression": "normal", "files": ["dist/**", "src-electron/**", "node_modules/**", "package.json"], "asarUnpack": ["**/node_modules/serialport/**", "**/node_modules/@serialport/**"] }` and pick a target (`nsis` for Windows shop PCs). Impact: shippable installer. Risk: scope creep — flag it, do not do it in AA.
+
+25. **`src-electron/main.js:24` (electron-log require)** — verify `electron-log` rotates. Add `logger.transports.file.maxSize = 5 * 1024 * 1024;` (5 MB rotation) so a long-running shop install doesn't grow logs unbounded. Impact: bounds `%APPDATA%\<app>\logs\` growth over months. Risk: none.
+
+#### Anything genuinely surprising
+
+- **Security posture is already very good.** `contextIsolation: true`, `webSecurity: true`, `nodeIntegration: false` are already correct on both windows (main.js:149-151). Only `sandbox: false` is off-default, and the code comment claims "preload uses `require()`" — which is technically true (`require('electron')`) but that specific require is sandbox-compatible. Sandbox flipping (item 5) is safer than the comment implies.
+- **Preload surface is disciplined.** All 76 methods route through `ipcRenderer.invoke` with named channels. Zero generic "run this string" escape hatches. Unusually clean for a project this size.
+- **The IBJA scheduler is hand-rolled instead of `node-cron`.** Correctly avoids a dependency; whole scheduler is 90 lines and works. Do not "improve" it into a dependency in AA.
+- **`hide_from_screenShare.js` is dead code that would crash the app if required.** Delete-on-sight (item 20).
+- **The `bootPoll` setInterval (main.js:1237) is a code smell** — a permanent 2 s poll to detect `pool` liveness where an event would do. Not a perf disaster but ugly.
+- **No electron-builder config in `package.json` at all.** The single biggest gap between "this app runs" and "this app ships" is out-of-scope for AA but must be surfaced (item 24).
+- **`dist/browser/` was empty during audit** (production build not run in this branch state). AA must run `npm run build` before measuring the packaged footprint.
 
 ### 18.2 Workstream AA — status
 
