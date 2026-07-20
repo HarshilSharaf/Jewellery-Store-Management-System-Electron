@@ -464,3 +464,134 @@ Deferred out of C:
 These are Phase 2. Their gating features and the corresponding schema stubs from Phase 1 are aligned; Phase 2 is now unblocked.
 
 **Not committed / not touched (all correctly out of scope):** IBJA rate auto-fetch (P3), WhatsApp Business API (P3, 2-6 week lead time on Meta verification), CSV/Tally XML migration (P3), Hindi/Gujarati/Marathi i18n (P3), Android companion (P3), `⌘K` command palette (P3), repair/job-ticket module (P3).
+
+---
+
+## 10. Phase 1.5 — Full UI rebuild before Phase 2
+
+**Decision made 2026-07-21:** before starting Phase 2 features (HUID/barcode, weighing scale, old-gold cart, saving-scheme, karigar, reports, RBAC, backup), do a full UI rebuild. Prior phases got the app off Material and off FontAwesome and installed the Tailwind + Spartan + Radix stack, but the Lightning Admin sidebar-shell chrome and Bootstrap grid remained across every screen. The visual direction from plan section 2 (warm-neutral editorial, slim rail nav, top rate ticker, dense typography) never fully landed.
+
+**Scope of the rebuild:**
+
+- **Rip Lightning Admin theme** entirely. Files: `client/assets/lightning-admin.scss`, `client/assets/partials/_*.scss`, any bootstrap-compat script wired via `angular.json`, plus their references in `client/styles.scss`. Assess whether `animate.css` and Bootstrap grid classes across templates can be dropped in the same pass (Tailwind covers both).
+- **New app shell** (`client/app/shared/components/app-shell/` — new). Slim left rail: brand → nav items (Today / Sell / Stock / People / Catalog / Settings) with Lucide icons + active-state accent + tooltip labels when collapsed. Top bar: rate ticker (999 / 916 / 750 pills with lock button), global search (⌘K trigger, but palette itself stays P3), theme toggle, user avatar dropdown. Content column: warm ivory background, generous padding, one column with contextual right-panel slot for edits/details (Linear/Height style) instead of always-full-page transitions.
+- **Redesign every feature screen** against the new shell + design tokens: Dashboard, Orders list + details + payments, Order-builder / Cart (the money screen), Invoice preview, Customers list + view, Inventory list + view, Categories, Users, Profile, Settings, Login.
+- **Design anchors (unchanged from section 2):** Inter Variable + Hind (both already self-hosted), Instrument Serif for display-only KPI numerals + shop name, Lucide icons, warm-ivory `oklch(97% 0.01 85)` bg with amber `oklch(72% 0.14 65)` accent, 32-36px desktop table rows, 13-14px body / 11-12px caption, `tnum` on all money columns, motion under 300ms and only on state changes, dark mode as toggle.
+- **Reference direction:** Linear's dim-chrome-to-lift-content recipe, the [Khwaahish jewellery dashboard on Behance](https://www.behance.net/gallery/227463105/Store-Management-Dashboard-Khwaahish), warm-ivory palette borrowed from Missoma / Mejuri to flatter product photography.
+
+**Execution plan:**
+
+- **Workstream G — Foundation** (first, sequential): rip Lightning Admin, build the new AppShell component, redesign the Dashboard as the pattern. Blocks screen redesigns.
+- **Workstream H — People + Stock**: Customers + Inventory screens, once G lands.
+- **Workstream I — Sell + Books**: Orders list + Order details + Order payments + Order-builder / Cart + Invoice preview blend, once G lands.
+- **Workstream J — Catalog + admin**: Categories + Users + Profile + Settings visual polish + Login consistency pass, once G lands.
+
+H / I / J can run in parallel once G is green. All work continues on submodule branch `redesign/ui-modernization`.
+
+**Explicitly out of scope for this rebuild pass:** Phase 2 features (HUID/barcode input, scale integration, old-gold cart line, saving-scheme, karigar, reports, RBAC, backup/restore). Those come after the rebuild is fully green.
+
+### 10.1 Workstream G — status
+
+**Landed 2026-07-20, submodule commits on `redesign/ui-modernization`: `51a1675` (Lightning Admin rip), `3e8887e` (AppShell scaffolding + wiring), `fe24966` (delete old chrome), `200885f` (dashboard redesign).** Parent-repo submodule pointer not bumped (per rules). Parent `angular.json` retains the `animate.min.css` removal from the initial G-restart pass; `client/assets/bootstrap-compat.js` stays in the scripts array because feature templates in categories, inventory add-product, and order-payments still call `data-bs-toggle="modal"` on it (non-trivial, waits for H/I/J).
+
+**Lightning Admin surface eliminated (reconciled across both G sessions):**
+
+- Deleted `client/assets/lightning-admin.scss` (six-partial `@use` graph).
+- Deleted `client/assets/partials/_navbar.scss`, `_sidebar.scss`, `_themes.scss`, `_dashboard.scss`.
+- Retained `client/assets/partials/_bootstrap-compat.scss` and `_variables.scss` — the compat layer is what keeps H/I/J's still-Bootstrap-grid feature templates styled until they migrate off.
+- `client/styles.scss` now boots `bootstrap-compat` at the top, then Tailwind base/components/utilities, then the hlm-* recipes, then the token system. No `@use './assets/lightning-admin'` reference remains.
+
+**AppShell shipped (`client/app/shared/components/app-shell/`):**
+
+- `app-shell.component.{ts,html,scss}` — outer container: `<top-bar>` (h-14, `border-b`) on top, `<rail>` (w-14, `border-r`) on left, `<router-outlet>` in the content area with 32px padding, `<cart-side-bar>` hosted at the shell level.
+- `top-bar.component.{ts,html,scss}` — shop wordmark in Instrument Serif via `ShopSettingsService` (fallback "Radiance"), central `<app-rate-ticker>`, right cluster: search input (150-220px, `lucideSearch` prefix, `Ctrl+K` / `Cmd+K` focus via `@HostListener('window:keydown.control.k')` + `.meta.k`, placeholder shows the modifier-aware hint), theme toggle button, `<app-add-to-cart>` retained from the reusable navbar child folder, `<app-user-menu>`.
+- `rail/rail.component.{ts,html,scss}` — 56px slim rail. Brand mark = 32px amber circle with Instrument Serif "R". Primary nav array: Today / Sell / Stock / People / Catalog routed to `/dashboard` / `/orders` / `/inventory` / `/customers` / `/categories` with Lucide icons. Bottom cluster: Settings item + Sign-out button firing `AuthService.logout()`. Each item is 44px square, `routerLinkActive="is-active"` toggles the amber left-stripe (2px absolute span) + `bg-accent-subtle`. Tooltip via native `title` attribute. `:focus-visible` outline honored.
+- `rate-ticker/rate-ticker.component.{ts,html,scss}` — three pills for 999 / 916 / 750 from `MetalRatesService.getCurrent()`. Format via `Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 })`. `lucideLock` accent when a rate is on file, `lucideLockOpen` muted otherwise. **Rate-pill popover extraction was not undertaken this pass** — the pills currently route to `/settings` on click as documented in the follow-up list. Popover-in-ticker is deferred.
+- `user-menu/user-menu.component.{ts,html,scss}` — 32px avatar trigger (image via `UserService.getUserImage` + `FileSystemService` path resolution, initial letter fallback when no image). Hand-rolled dropdown (no library) with `document:click` + `keydown.escape` close. Menu items: Profile (routes to `/profile`), Sign out (fires `AuthService.logout()`).
+
+**Routing wired:**
+
+- `client/app/modules/main/components/main/main.component.{ts,html}` reduced to `imports: [AppShellComponent]` + template `<app-shell/>`. Prior wrapper markup + `SideBarService` classes removed.
+- `main-routing.config.ts` gained a `settings` child pointing at `settings-routing.config` so `/settings` renders inside AppShell.
+- `app-routing.config.ts` no longer registers `settings` as a top-level shell-less route; only `""` (main tree) and `login` remain siblings.
+
+**Old chrome deleted:**
+
+- `client/app/shared/components/sidebar/` (whole folder).
+- `client/app/shared/components/navbar/navbar.component.{ts,html,scss}`.
+- `client/app/shared/components/navbar/profile-dropdown/` (superseded by app-shell/user-menu).
+- `client/app/shared/components/navbar/rate-pill/` (superseded by app-shell/rate-ticker; see follow-up).
+- `client/app/shared/services/sidebar.service.ts` — only the deleted navbar imported it; `CartSideBarService` is untouched.
+- Retained: `client/app/shared/components/navbar/add-to-cart/` — reusable child consumed by `top-bar.component`.
+
+**Dashboard redesign (pattern for H/I/J):**
+
+- `client/app/modules/dashboard/components/main/main.component.{ts,html,scss}` rebuilt around a 12-column grid.
+- Row 1 (span 12): "Today" in Instrument Serif 2.25rem + right-aligned `dayjs` date (`ddd D MMM YYYY`, e.g. "Mon 20 Jul 2026") in tabular-nums.
+- Row 2: **Revenue** card (span 8) — Instrument Serif KPI value from `get_revenue_of_six_months`, delta chip (`kpi-delta-up` / `kpi-delta-down`), area line chart from `get_sales_labour(6)` (accent stroke, 8% fill, 240px, no grid lines, theme-reactive redraw). **Lock today's rate** card (span 4) — 916/22K rate from `MetalRatesService.getCurrent()`, "Lock rate" button that routes to `/settings`.
+- Row 3: **Recent invoices** (span 6) — 5 rows from `get_recent_orders(5)`; rows show invoice number 13px medium + customer name 12px muted, right amount tabular-nums, click routes to `/orders/view-order-details/:guid`. **Fast movers** (span 6) — top 5 from `get_top_product_categories`; rank + Lucide gem thumb + name + weight + percentage. If SP returns empty, muted single-line empty state with `lucideInbox` at 24px says "Analytics coming soon".
+- Row 4: three span-4 KPI stat tiles — **Total customers** (`get_total_customers`), **Stock (grams)** (`get_total_stock`), **Pending payments** (derived from `get_all_orders(500, 1, "")` filtered by `!isPaymentDone && !cancelledAt` — no dedicated SP exists yet, count + total amount summed client-side).
+- KPI card recipe added to `styles.scss` `@layer components` (`.kpi-card`, `.kpi-label`, `.kpi-value`, `.kpi-delta`, `.kpi-delta-up`, `.kpi-delta-down`) mapped to the token palette; H/I/J can reuse.
+- Chart.js redraws on `data-theme` mutation via `MutationObserver`, disposed in `ngOnDestroy`. Bootstrap `.row`/`.col-*`/`.card` chrome fully gone from dashboard. No FontAwesome / Angular Material remnants (already ripped in prior workstreams).
+
+**Login pass:** verified — `client/app/modules/login/` uses no Lightning Admin classes and no Bootstrap grid; theme-toggle + amber CTA still render correctly against the ripped SCSS.
+
+**Verification at close of G:**
+
+- `ng build --configuration=development` — PASS (~5.2s). No new warnings; remaining are pre-existing `NG8107` optional-chain notes in print-invoice / add-product-form / create-invoice templates.
+- `ng test --watch=false --browsers=ChromeHeadless` — **15/15 SUCCESS** (7 baseline + 8 amount-in-words specs from Workstream E).
+- Live-app walkthrough via `npm start` not exercised end-to-end this pass (build-and-test-green + grep gates); shell is expected to render on all routes.
+
+**Bootstrap-grid fallout (visually stale, non-blocking — H/I/J territory):**
+
+H/I/J will inherit these templates still leaning on Bootstrap `.container-fluid`, `.row`, `.col-*`, `.form-group`, or `.card`:
+
+- `client/app/modules/customers/components/view-details/view-details.component.html`
+- `client/app/modules/customers/components/add-customer-form/add-customer-form.component.html`
+- `client/app/modules/inventory/components/inventory-page/inventory-page.component.html`
+- `client/app/modules/inventory/components/available-products/available-products.component.html`
+- `client/app/modules/inventory/components/available-products/components/add-product-form/add-product-form.component.html`
+- `client/app/modules/inventory/components/product-details-form/product-details-form.component.html`
+- `client/app/modules/inventory/components/view-product-details/view-product-details.component.html`
+- `client/app/modules/orders/components/order-details/order-details.component.html`
+- `client/app/modules/orders/components/order-payments/order-payments.component.html`
+- `client/app/modules/orders/components/order-products-details/order-products-details.component.html`
+- `client/app/modules/orders/components/prepare-order/components/create-invoice/create-invoice.component.html`
+- `client/app/modules/orders/components/prepare-order/components/select-customer/select-customer.component.html`
+- `client/app/modules/orders/components/print-invoice/print-invoice.component.html` (grid-only; E's rebuild is scoped to A4/thermal invoice — grid stays functional)
+- `client/app/modules/categories/components/categories-page/categories-page.component.html`
+- `client/app/modules/categories/components/master-categories/master-categories.component.html`
+- `client/app/modules/categories/components/master-categories/components/available-master-categories/available-master-categories.component.html`
+- `client/app/modules/categories/components/master-categories/components/add-master-category-form/add-master-category-form.component.html`
+- `client/app/modules/categories/components/sub-categories/sub-categories.component.html`
+- `client/app/modules/categories/components/sub-categories/components/available-sub-categories/available-sub-categories.component.html`
+- `client/app/modules/categories/components/sub-categories/components/add-sub-category-form/add-sub-category-form.component.html`
+- `client/app/modules/categories/components/product-categories/product-categories.component.html`
+- `client/app/modules/categories/components/product-categories/components/available-product-categories/available-product-categories.component.html`
+- `client/app/modules/categories/components/product-categories/components/add-product-category-form/add-product-category-form.component.html`
+- `client/app/modules/settings/components/settings-page/settings-page.component.html`
+- `client/app/modules/profile/components/profile-page/profile-page.component.html`
+- `client/app/modules/dashboard/components/recent-orders/recent-orders.component.html` (retired list, still referenced only from removed dashboard chrome; keeping in place until dashboard cleanup finishes)
+
+All render without runtime errors; they simply pick up the bootstrap-compat token overrides so they don't look catastrophic on the new shell.
+
+**Deferred (documented, not blocking):**
+
+1. **Rate-ticker popover extraction.** Prior rate-pill's popover was tightly coupled to its component; extracting a reusable popover primitive is heavier than the plan's "small, do not over-engineer" guardrail. Pills currently route to `/settings` (Metal rates tab) on click. Follow-up: split the popover into a shell primitive under `app-shell/rate-ticker/popover.component.ts` and mount it on the pill trigger.
+2. **`get_pending_payments` stored proc.** Dashboard pending KPI derives from `get_all_orders(500, 1, "")` + client-side filter. Worth a dedicated SP for accuracy and speed on large stores.
+3. **`client/assets/bootstrap-compat.js` still wired in `angular.json`.** Non-trivial — handles `data-bs-toggle="dropdown"` and `data-bs-toggle="modal"` from category forms, add-product form, order-payments. Drop when H/I/J migrate those modal + dropdown surfaces to hand-rolled overlays (following the customers `add-customer-form` pattern from Workstream F).
+4. **`client/app/modules/dashboard/components/recent-orders/recent-orders.component.*`** — orphaned after the new dashboard stopped referencing it. Safe to delete in a J follow-up sweep.
+5. **Rail user-image slot.** RailComponent doesn't have a mid-rail user avatar today — the user avatar lives on the top-bar via `<app-user-menu>`. If a future direction wants dual placement (avatar in rail + hover popover), factor `<app-user-menu>` accordingly.
+
+
+### 10.2 Workstream H — status
+
+_TBD_
+
+### 10.3 Workstream I — status
+
+_TBD_
+
+### 10.4 Workstream J — status
+
+_TBD_
