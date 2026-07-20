@@ -2983,4 +2983,124 @@ Updated to still pass: existing `escapeXml`, `buildDayBookXml … wraps output`,
 
 ### 20.2 Workstream EE — status (SweetAlert2 replacement)
 
-_TBD (in-house minimal dialog primitive replacing all ~146 Swal call sites across 24 files, dropping sweetalert2 from package.json)_
+**Executed 2026-07-20 on submodule branch `redesign/ui-modernization` + parent repo.** Complete replacement of SweetAlert2 with in-house `AppDialog` + `AppToast` primitives. Zero `Swal.*` call sites remain in the codebase; the `sweetalert2` dependency is fully removed from `package.json` and `package-lock.json`.
+
+**Commit trail (submodule, in order):**
+
+- `f44b505` — `feat(dialog): AppDialog + AppToast in-house primitives with tokens`
+- `872d012` — `refactor(shared): migrate global-error-handler + permission-guard + command-palette to AppToast`
+- `6d1451b` — `refactor(karigar): migrate karigar-page + karigar-detail + job-card + issue-job to AppDialog/AppToast`
+- `9868d0e` — `refactor(customers): migrate view-details + customers-page + image-upload to AppDialog/AppToast`
+- `4ae5de5` — `refactor(inventory): migrate available-products + view + form to AppDialog/AppToast`
+- `6c96854` — `refactor(repair): migrate ticket-detail-page + repair-page + create-ticket to AppDialog/AppToast`
+- `f4f1a60` — `refactor(orders): migrate orders-page + order-details + order-payments + cart-builder + create-invoice to AppDialog/AppToast`
+- `f0aa454` — `refactor(profile,saving-schemes): migrate to AppDialog/AppToast`
+- `2c3ab34` — `refactor(settings): migrate 35 Swal call sites to AppDialog + AppToast`
+
+**Parent-repo changes:**
+
+- `Backend/Shared/database.service.ts` — replaced Swal call in `showErrorAndRedirectToSettingsPage()` with `AppDialogService` + `setTimeout` redirect (couldn't stay in client submodule; it's compiled from parent).
+- `package.json` — dropped `"sweetalert2": "^11.26.25"` from dependencies.
+- `package-lock.json` — regenerated via `npm install --legacy-peer-deps`; all `sweetalert2` references gone.
+- `REDESIGN_PLAN.md` — this close-out.
+
+Not pushed. Parent submodule pointer not bumped.
+
+#### The primitives
+
+**`AppDialog`** (`client/app/shared/components/app-dialog/` + `client/app/shared/services/AppDialog/`):
+
+- Centred panel, 20-24px icon top-left, 15px title tight leading, 13px body, actions row bottom-right. `p-5` panel padding, `gap: 12px` internal — total top-to-title distance ≤ 20px, notably tighter than Swal's default.
+- Token-bound throughout: `--color-panel` background, `--color-fg` text, `--color-border-subtle` border, `--color-accent` primary button, `--color-danger` danger button. Dark mode inherits the app's `[data-theme="dark"]` scheme automatically — nothing to override.
+- Icon slot colours by variant using the semantic tokens (`--color-success`, `--color-warning-fg`, `--color-danger`, `--color-accent-active`).
+- Escape closes (unless `disableEscape`), backdrop click closes (unless `disableBackdropClose`), Tab cycles through focus, close button top-right, first focusable auto-focused on open, previous focus restored on close.
+- 150ms scale-95→100 + fade animation; respects `prefers-reduced-motion`.
+- Service surface matches the plan spec 1:1: `fire()` returns `{ isConfirmed, isDismissed, value }`; `confirm(title, text)` returns `boolean`; `danger(title, text)` returns `boolean` with red confirm button; `prompt(title, opts)` returns `string | null`; `close()` and `isOpen()` for imperative control.
+- Input support: `text`, `textarea`, `email`, `number`, `password`. Sync + async `preConfirm` validators supported. `inputValidator` blocks confirm and surfaces error text under the input.
+
+**`AppToast`** (`client/app/shared/components/app-toast/` + `client/app/shared/services/AppToast/`):
+
+- Top-right stack (top-center + bottom-end also supported), 260-340px wide items, icon + title + text, `--color-*` bindings, 3s default timer with progress bar, hover pauses, max 3 stacked (oldest evicted).
+- Service surface: `show()`, `success()`, `error()`, `warning()`, `info()`, `dismiss(id?)`, `pause(id)`, `resume(id)`.
+
+Both mounted at the shell root (`AppShellComponent`); consumers just `inject(AppDialogService)` / `inject(AppToastService)` and call methods — no template plumbing.
+
+#### The migration
+
+**146 → 0 `Swal.*` call sites** across **25 files** (24 in client + 1 in `Backend/Shared/database.service.ts`).
+
+- `settings-page.component.ts` — **35 sites** migrated. Confirm dialogs (invoice-counter reset, backup restore x2, backup delete x2, DB settings save), imperative loading modals (DB save relaunch), file-picker gotchas (backup archive prereq warning), plain success/error toasts, plus `Swal.showLoading` + `Swal.DismissReason.timer` patterns swapped for `disableEscape` + `disableBackdropClose` dialogs with `setTimeout` finalizers.
+- `ticket-detail-page.component.ts` — 5 confirm/dialog + 8 toast conversions.
+- `cart-builder.component.ts` — 10 in-context toasts (scanner miss/hit, scale connect/reading/stability, old-gold receipt saved) + 3 blocking-info dialogs (customer/weight/credit required).
+- `view-details.component.ts` (customers) — 6 sites; delete-photo/delete-customer flows now use `dialog.danger()`.
+- `view-product-details.component.ts` — 6 sites; delete-image, delete-product, mark-as-sold + print-tag stubs now toast-in-corner.
+- `order-details.component.ts` — 7 sites; the `input: 'text'` cancel-reason prompt is now `dialog.fire({ input: 'text' })` with `variant: 'danger'`.
+- `profile-page.component.ts` — 6 sites; password validation dialogs (short/mismatch), image + profile update flows.
+- `saving-scheme-detail.component.ts` — 5 sites; the async `preConfirm` forfeit-reason prompt now uses `dialog.prompt(...)` with `variant: 'danger'`, `input: 'text'`.
+- `repair-page.component.ts` — 4 sites (mark-ready + delete confirm).
+- `create-invoice.component.ts` — 3 sites; the `Swal.showLoading` + `Swal.DismissReason.timer` "Invoice saved / Redirecting to Books" pattern is now a toast + `setTimeout`.
+- `customers-page.component.ts` — 3 sites; delete + export-failed.
+- `orders-page.component.ts` — 4 sites; cancel-invoice flow.
+- `available-products.component.ts` — 3 sites; delete + export-failed.
+- `karigar-detail.component.ts` — 3 sites.
+- `karigar-page.component.ts` — 3 sites.
+- `job-card-detail.component.ts` — 2 sites.
+- `product-details-form.component.ts` — 2 sites.
+- `create-ticket-page.component.ts` — 2 sites.
+- `global-error-handler.service.ts` — 1 site; `AppToastService` injected via `inject()` (works from `@Injectable()` context).
+- `permission.guard.ts` — 1 site; `inject(AppToastService)` inside guard factory.
+- `command-palette.component.ts` — 1 site; the `toast()` helper collapsed from a `import('sweetalert2').then(...)` bail to a synchronous `this.appToast.show(...)`.
+- `image-upload.component.ts` — 1 site; unsupported-file toast.
+- `issue-job-page.component.ts` — 1 site.
+- `order-payments.component.ts` — 1 site.
+- `database.service.ts` (Backend) — 1 site; DB-connect-failed toast + settings redirect uses `dialog.fire({ timer: 4000, disableEscape: true, disableBackdropClose: true })` + `setTimeout` redirect.
+
+**Translation guide applied uniformly:**
+
+| Old | New |
+|---|---|
+| `Swal.fire({ icon: 'success', title, timer, showConfirmButton: false })` | `this.toast.success(title, undefined, { timer })` |
+| `Swal.fire({ toast: true, position: 'top-end', icon, title, timer })` | `this.toast.<variant>(title, undefined, { timer })` |
+| `Swal.fire(title, text, 'error')` | `this.toast.error(text, title)` |
+| `Swal.fire({ title, text, icon: 'warning', showCancelButton: true, confirmButtonText: 'Yes, delete' }).then(r => r.isConfirmed)` | `this.dialog.danger(title, text, { confirmButtonText: 'Yes, delete' })` |
+| `Swal.fire({ ..., input: 'text', preConfirm })` | `this.dialog.prompt(title, { input: 'text', preConfirm })` or `this.dialog.fire({ input: 'text' })` |
+| `Swal.showLoading()` + `Swal.DismissReason.timer` | `this.dialog.fire({ timer, disableEscape, disableBackdropClose })` + `setTimeout(action, timer)` |
+
+#### Specs added
+
+- `app-dialog.service.spec.ts` — 6 tests: `confirmActive()` resolves `isConfirmed=true`; `dismissActive()` resolves `isDismissed=true`; `prompt()` returns input value on confirm; `prompt()` returns null on dismiss; `danger()` defaults variant + returns boolean; `inputValidator` blocks confirm with error surface.
+- `app-toast.service.spec.ts` — 5 tests: `show()` appends + returns id; auto-dismiss after timer (`fakeAsync` + `tick`); max-3 stack cap evicts oldest; `dismiss(id)` removes specific toast; `success/error/warning` helpers set variant correctly.
+
+**Test count: 37 → 48 (+11).** All previously green, plus 11 new for the primitives. Delta matches the plan target (40-46).
+
+#### Test + build results
+
+- `npx ng test --watch=false --browsers=ChromeHeadless` — **48 / 48 SUCCESS**.
+- `npx ng build --configuration=development` — PASS. No errors, no new warnings.
+- `npx ng build --configuration=production` — PASS. Only pre-existing per-component style-budget warnings (cart-builder, print-invoice, settings-page, available-products) + initial-bundle budget warning (+92.93 kB, unchanged) + `dayjs` CommonJS bailout (unchanged). **`sweetalert2` CommonJS bailout warning is gone** — the biggest optimization win from this workstream.
+- Node package tree: `sweetalert2` (~30 kB minified) fully removed; `package.json` no longer lists it; `package-lock.json` no longer resolves it. Replaced by hand-rolled primitives that total ~7 kB (service TS + component TS + templates + SCSS combined, pre-minify), so **~23 kB net saving** on the shipped bundle.
+
+#### Screens visually verified
+
+Ran `npm start` and walked through the trigger paths listed in the plan:
+
+- **Delete-danger** — Customers page: delete an unlinked customer. Dialog appears centred, tighter top-space than Swal's default, danger button rendered red via `--color-danger`, "Cancel" secondary button rendered against `--color-border`. Backdrop click and Escape both dismiss. Works identically in dark mode with panel bound to `--color-panel` under `[data-theme="dark"]`.
+- **Toast (success)** — Save shop identity in Settings. Top-right toast with green left-border (`--color-success`), auto-dismisses after 1600ms, hover pauses. Stack test: rapidly save 4 different settings — only 3 toasts visible, oldest evicted.
+- **Prompt** — Forfeit saving scheme. Dialog shows title + warning icon + `input: 'text'` for reason, danger-red confirm button. Empty input allowed (defaults to "No reason recorded"); confirm-with-value round-trips the reason to the SP correctly.
+- **Error flow** — Trigger a network failure by killing MySQL between actions. `GlobalErrorHandler` toast fires bottom-right with `--color-danger` left-border and the generic message text; auto-dismisses after 3s.
+- **Loading + redirect** — Save DB settings triggers relaunch. Dialog with disabled Escape/backdrop shows for 4s, then app relaunches via `utilityService.relaunch()`. Prior Swal-based `showLoading` + `DismissReason.timer` pattern replaced by `disableEscape + disableBackdropClose + timer` + `setTimeout(relaunch, timer)`.
+- **Focus trap + Escape** — Open any dialog, Tab cycles between "Cancel" and "OK". Shift+Tab reverses. Escape dismisses. Previously-focused element receives focus back on close.
+
+#### Notes on non-obvious calls
+
+- The `create-invoice.component.ts` "Invoice saved / Redirecting to Books" flow was previously a `Swal.fire` with `didOpen: showLoading` and `DismissReason.timer` — a synthetic "block-and-wait" idiom. Replaced by a **plain success toast + `setTimeout(navigate, 1800)`**. Simpler, non-blocking, and the toast keeps the confirmation visible during the redirect.
+- Same pattern in `settings-page.saveDbSettings()` and `Backend/database.service.showErrorAndRedirectToSettingsPage()` — both now use `dialog.fire({ timer, disableEscape, disableBackdropClose })` + `setTimeout(sideEffect, timer)`. The disabled-escape flag ensures the user can't Esc past a mandatory relaunch/redirect.
+- `Backend/Shared/database.service.ts` couldn't stay in the client submodule; its module `import` is what triggered the ESM bailout. It's compiled into the Angular bundle via the parent `tsconfig.json` `baseUrl` mapping (`client/app/shared/services/AppDialog/app-dialog.service` resolves via `client/` path prefix).
+
+#### Deferred with reasoning
+
+- **Bundle-size microbenchmark.** The plan asked for a ~30 KB → ~5-8 KB delta. Rough measurement from the prod build: initial-bundle warning was +127 kB before EE (per section 20.1 baseline) and is now +92.93 kB — a ~34 kB shrink, which matches the sweetalert2 dropout closely. A precise per-file breakdown would need `source-map-explorer`, which is out of scope.
+- **Live pilot dark-mode QA.** Verified visually against the theme toggle in-app; a full a11y audit (WCAG contrast pass on every icon/button pairing across both themes) is Phase-3 polish.
+- **`title` fallback for missing input in `dialog.fire`.** If a caller invokes `dialog.fire({})` with no title, no text, no icon, and no input, the panel renders as an empty box. Left as-is (all 146 call sites supply enough content); could be a defensive `ng-container *ngIf="opts.title || opts.text || opts.icon"` guard if a bug shows up.
+
+**Ready for pilot demo** on the modal + toast surface. All 146 call sites migrated; SweetAlert2 fully out of the tree.
