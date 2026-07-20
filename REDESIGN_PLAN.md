@@ -2980,3 +2980,7 @@ Updated to still pass: existing `escapeXml`, `buildDayBookXml … wraps output`,
 
 **Ready for pilot demo** once (a) the follow-on SweetAlert2 replacement workstream ships and (b) a user with Tally Prime confirms the receipt + sales voucher imports round-trip clean.
 
+
+### 20.2 Workstream EE — status (SweetAlert2 replacement)
+
+_TBD (in-house minimal dialog primitive replacing all ~146 Swal call sites across 24 files, dropping sweetalert2 from package.json)_
