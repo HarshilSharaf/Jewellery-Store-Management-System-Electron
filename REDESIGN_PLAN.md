@@ -2537,7 +2537,89 @@ _TBD_
 
 ### 18.3 Workstream BB — status (chart + large-screen responsive)
 
-_TBD (runs in parallel with Z — targets two user-reported bugs)_
+**Landed 2026-07-20 on submodule branch `redesign/ui-modernization`.** Two commits addressing the two user-reported bugs. Parent-repo pointer not bumped (per rules); no parent files touched (`tailwind.config.js` left alone — the app doesn't rely on Tailwind utility breakpoints for large-screen layout, everything is component SCSS with hand-rolled media queries so a `3xl:` breakpoint would be dead weight).
+
+**Bug 1 — chart doesn't render — root cause + fix.**
+
+Root cause was a race between `@ViewChild`-resolution and OnPush change detection in `client/app/modules/dashboard/components/main/main.component.ts`. The `<canvas #revenueChart>` is inside `@if (monthlySales.length)` — so it doesn't exist in the DOM until `loadRevenue()` sets `monthlySales`. W's Phase 3.5 rewrite of that component converted it to `ChangeDetectionStrategy.OnPush` and made Chart.js a dynamic import. The failing sequence:
+
+1. `ngOnInit` fires `loadRevenue()` (async).
+2. `ngAfterViewInit` fires — `chartCanvas` is `undefined` because `monthlySales` is empty; the theme `MutationObserver` is registered but the initial render never happens.
+3. `loadRevenue()` resolves — sets `monthlySales`, calls `renderChart()` immediately, THEN calls `markForCheck()`.
+4. `renderChart()` runs before the OnPush pass has materialised the canvas — `!this.chartCanvas` guard returns early. **Silent bail-out. No chart.**
+5. `markForCheck()` fires next tick — canvas gets rendered but nothing triggers a chart-build.
+
+Fix in `main.component.ts` (loadRevenue reorder + new `scheduleChartRender()` helper):
+
+- Set `monthlySales` first, then call `markForCheck()`, then `setTimeout(() => renderChart(), 0)`. The `setTimeout(0)` macrotask fires strictly after the Angular change-detection macrotask, so `chartCanvas` is resolved to the freshly-instantiated canvas.
+- `ngAfterViewInit` now also schedules a render if data already landed (covers the race where data arrives before the view init).
+- `renderChart` gained a defensive one-shot `cdr.detectChanges()` + micro-defer if the canvas is still missing — belt-and-suspenders for slow first-render scenarios.
+- Theme `MutationObserver` now routes through `scheduleChartRender()` too, so a theme flip mid-life re-instantiates the chart correctly.
+
+W's dynamic-import performance win is preserved — Chart.js is still `await import('chart.js/auto')` inside `ensureChart()`, still off the initial critical path.
+
+**Bug 2 — large-screen responsive audit + fixes.**
+
+Screens audited (10, in scope) and per-screen decisions:
+
+| # | Screen | Before | After |
+|---|---|---|---|
+| 1 | AppShell content column | already `flex: 1`, no max-width | left alone — correctly-owned by shell |
+| 2 | Dashboard row-1 (revenue chart + rate card) | 8/4 split at all sizes | 8/4 default, 9/3 at ≥1800px, 10/2 at ≥2400px (rate card doesn't billboard on 4K) |
+| 3 | Dashboard KPI row-4 (3 tiles) | span-4 each | left alone — 3 × 1/3-width is fine even on 2560px |
+| 4 | Prepare-order shell (cart-builder container) | `max-width: 1500px` | removed cap; shell stretches to full content column |
+| 5 | Cart-builder 8/4 grid (line items / totals) | fluid to 4fr | fluid default, right column pinned to `400px` at ≥1800px so totals card doesn't sprawl |
+| 6 | Orders-page (Books list) | `max-width: 1400px` | removed cap; table fills wide viewports |
+| 7 | Order-details 8/4 detail shell | `max-width: 1400px` + 8fr/4fr | removed cap; side rail pinned to `420px` at ≥1800px |
+| 8 | Shared `.detail-shell` recipe (6 detail screens: customers, products, saving-schemes, karigar, karigar-job, repair) | 3fr/2fr always | 3fr/2fr default, side rail pinned to `380px` at ≥1800px |
+| 9 | Inventory list — stock tiles row | `auto-fit minmax(220px, 1fr)` | added `minmax(260px, 340px)` cap at ≥1600px so tiles don't billboard |
+| 10 | Inventory grid view (product cards) | `auto-fill minmax(220px, 1fr)` | tighter min: `200px` at ≥1400px, `190px` at ≥1800px → more product cards per row on wide monitors |
+| 11 | Reports landing tile grid | 3 tiles per row (span 4 of 12) at ≥900px | 4 tiles per row (span 3 of 12) at ≥1600px |
+| 12 | Profile-page shell (3fr/1fr) | fluid | side column pinned to `340px` at ≥1800px |
+| 13 | Reports tables (day-book, sales-register, stock-summary, GSTR-1) | `width: 100%; min-width: 900-1100px` inside `.report-scroll` | left alone — tables fill via 100% and scroll below their min-width |
+| 14 | Settings tabs content pane | `min-height: 60vh` with no width cap | left alone — already fills content column |
+| 15 | Print-invoice preview | `max-width: 900px` | left alone — deliberately simulates A4 paper |
+| 16 | Login two-panel layout | own responsive rules with 960px shell + 460px form column | left alone — form column intentionally capped for readability |
+| 17 | Overlay dialogs (add-customer, karigar-form, enroll-scheme-form) | 560-780px | left alone — dialog forms intentionally narrow for readability |
+
+Concurrency: `tailwind.config.js` at parent root NOT touched (no `3xl:` breakpoint added — the app's responsive layout is all hand-rolled component SCSS with `min-width: 1800px` / `min-width: 2400px` media queries; a Tailwind breakpoint would be unused). Parent repo unchanged aside from this plan section.
+
+**Files touched (submodule only, all under `client/`):**
+
+- `client/app/modules/dashboard/components/main/main.component.ts` — chart-render race fix + `scheduleChartRender()` helper.
+- `client/app/modules/dashboard/components/main/main.component.scss` — 9/3 and 10/2 breakpoints on primary row.
+- `client/app/modules/orders/components/prepare-order/prepare-order.component.scss` — drop `max-width: 1500px`.
+- `client/app/modules/orders/components/prepare-order/components/cart-builder/cart-builder.component.scss` — pin totals column at ≥1800px.
+- `client/app/modules/orders/components/order-details/order-details.component.scss` — drop `max-width: 1400px`, pin side rail at ≥1800px.
+- `client/app/modules/orders/components/orders-page/orders-page.component.scss` — drop `max-width: 1400px`.
+- `client/app/modules/inventory/components/available-products/available-products.component.scss` — tighter grid min at ≥1400/1800px, cap stock tiles at ≥1600px.
+- `client/app/modules/profile/components/profile-page/profile-page.component.scss` — pin side column at ≥1800px.
+- `client/app/modules/reports/components/reports-landing/reports-landing.component.scss` — 4-per-row at ≥1600px.
+- `client/styles.scss` — `.detail-shell` gets `380px` side rail at ≥1800px (covers all 6 detail screens). No new recipe block needed; edit is inside the existing H recipes block on the `.detail-shell` selector itself (concise, non-conflicting with X / Y / other workstreams' labeled blocks).
+
+**Test + build.**
+
+- `npx ng build --configuration=development` — **PASS.** Only pre-existing NG8107 warnings on M's `enroll-scheme-form` template + the `@angular/localize/init` polyfill notice (T's territory).
+- `npx ng test --watch=false --browsers=ChromeHeadless` — **32/32 SUCCESS.** No spec regressions.
+- `npx ng build --configuration=production` — **PASS.** Two pre-existing per-component style-budget warnings (`available-products.scss` +2.61 kB, `cart-builder.scss` +2.85 kB — both were already close to the 6 kB budget; my additions were 4-15 lines each; still safely under the 12 kB error threshold X / W set). Plus the same pre-existing `sweetalert2` + `dayjs` CommonJS bailouts. Nothing new.
+
+**Commits (submodule branch, in order):**
+
+- `79f6c97` — `fix(dashboard): chart renders after Chart.js dynamic import`
+- `0a0a420` — `feat(responsive): xl / 2xl breakpoints across dashboard / cart / lists`
+
+Not pushed. Parent submodule pointer not bumped.
+
+**Deferred / explicitly out of scope.**
+
+1. **`3xl:` Tailwind breakpoint** — considered per brief; skipped because zero templates in the app use `xl:` / `2xl:` Tailwind utility classes for layout. Everything responsive is component SCSS with explicit `@media` queries. Adding a Tailwind screen would ship dead config. If a future workstream migrates to utility-first layouts, add `3xl: 1920px` at that point.
+2. **Card view / list view density toggle audit** — the inventory grid view now packs more cards per row but the density-toggle in the toolbar (grid ↔ table) already handles user preference; no new density levels added.
+3. **Dashboard row-4 KPI grid** — deliberately left at 3-across even on 4K. Adding a 4th / 5th KPI tile is a content-additions call, not a layout fix; the existing 3 tiles look proportionate.
+4. **Print-invoice preview + login + all dialogs** — deliberately capped and correctly so; no changes.
+5. **Reports table widening on wide screens** — tables already fill via `width: 100%`; the `min-width: 900-1100px` on `.ds-table` is a floor, not a cap, so wide screens get full utilisation naturally.
+6. **Category-page grid** — already responsive (2/3/4/5/6 columns down-to-up to 6 cols above 1400px). No wide-screen sprawl at 4K because 6 × 240-260px = 1500-1600px which fits.
+7. **Zombie `bar-chart` / `pie-chart` components** — flagged in W's status. Not called by any template today. Their Chart.js code paths were not modified; unaffected by the fix (they still dynamic-import Chart.js). Removal is a code-cleanup pass, not BB's scope.
+8. **Karigar page cards + saving-schemes table** — already use `auto-fill minmax(280px, 1fr)` / `fr`-based grid rows, so they fill natively. No changes needed.
 
 ### 18.4 Workstream CC — status (demo-grade seed expansion)
 
