@@ -2533,7 +2533,103 @@ Every item names a file + line, describes the concrete change, gives an expected
 
 ### 18.2 Workstream AA — status
 
-_TBD_
+**Executed 2026-07-20.** Applied Z's 25-item punch list to `src-electron/**` and one dead file. Three commits landed on `integration/modernization-2026-07-17`:
+
+- `450c8f9 chore(electron): delete orphan hide_from_screenShare.js dead code`
+- `64463d7 perf(electron): runtime footprint pass — heap cap, disk cache, sandbox, ready-to-show`
+- `2a7f3c7 perf(electron): lazy-load serialport native binding in scale service`
+
+The main-process changes are tightly interlocking (backgroundColor pairs with ready-to-show; sandbox flip is validated by the same preload audit that motivates the lazy requires; before-quit cleanup relies on the lazy-load being deferred so we don't touch a null `scaleService` when scale was never opened), so I grouped them into one perf commit rather than the 6-way split suggested. The scale service and the dead-code delete are separate commits.
+
+#### Items landed
+
+| # | File:line | Change | Expected impact | Notes |
+|---|-----------|--------|-----------------|-------|
+| 1 | `main.js:186, 210, 216-221` | Added `backgroundColor: '#f9f9f8'` (actual `--color-bg` light-theme value from `client/styles.scss:198,246` — `--sand-2` = `#f9f9f8`, warmer than plain white but not the ivory `#FBF8F1` Z suggested — used the real token per the workstream instruction). Added `mainWindow.once('ready-to-show', …)` handler that pre-paints only; splash-close IPC still drives `mainWindow.show()`. | Eliminates the white-flash gap between splash-destroy and Angular first paint. | Deviated: Z spec'd `#FBF8F1`; user instruction spec'd "actual token value from --color-bg light theme". Used the token. |
+| 2 | `main.js:29` | `app.commandLine.appendSwitch('js-flags', '--max-old-space-size=512')` | ~50-100 MB less peak V8 heap under load. | As spec'd. |
+| 3 | `main.js:30` | `app.commandLine.appendSwitch('disk-cache-size', String(50 * 1024 * 1024))` | Caps HTTP disk-cache at 50 MB. | As spec'd. |
+| 4 | `main.js:38-40` | `if (process.env.ZEUS_DISABLE_GPU !== '0') app.disableHardwareAcceleration();` | Forces SwiftShader; eliminates GPU-process crash mode on outdated Intel HD. | Env-gated per spec. Default enabled. |
+| 5 | `main.js:192` | `sandbox: false` → `sandbox: true`. Verified preload.js only uses `require('electron')` (sandbox-safe). | ~20-40 MB per renderer via OS sandbox. | As spec'd. |
+| 6 | `main.js:203-211` | Dropped splash `webPreferences` block entirely; added `backgroundColor: '#f9f9f8'`. | ~30 MB less splash overhead. | As spec'd. |
+| 7 | `main.js:193` | `webPreferences.spellcheck: false` | ~30-50 MB savings; no dictionary fetch. | As spec'd. |
+| 8 | `main.js:194` | `webPreferences.v8CacheOptions: 'code'` (explicit; already default) | Documents intent; no runtime change. | Did NOT set `'bypassHeatCheck'` — that's a packaged-build optimization and we don't ship a packaged build yet (Z item 24, deferred). |
+| 9 | `main.js:231-233, 242-246` | Dev DevTools opens gated on `ZEUS_DEVTOOLS !== '0'`. `app.isPackaged` triggers `devtools-opened` handler that force-closes DevTools in prod. | Prevents packaged shops from exposing IPC internals. | As spec'd. |
+| 10 | `main.js:39-48, 44 call-sites` | Eager `require('./backup' \| './scale' \| './whatsapp' \| './ibja' \| 'bcryptjs')` replaced with `getXxxService()` thunks that load on first invocation. | Shaves 40-100 ms cold boot; broken native binding never crashes startup. | As spec'd. |
+| 11 | `main.js:91-92, 142-145, 1301-1304` | `bootPoll setInterval(…, 2000)` replaced with `poolReady` Promise; `createPool()` resolves it once on first success; `app.whenReady()` awaits it before scheduling IBJA. | Removes a permanent 2 s interval; cleaner. | As spec'd. |
+| 12 | `main.js:1311-1359` | `pool.end()` migrated from `window-all-closed` to `before-quit`. Handler also closes `scaleService` (if loaded), clears `ibjaTimer`, calls `session.clearCache()`, and `ipcMain.removeAllListeners()`. Uses `event.preventDefault()` + `app.exit(0)` to avoid double-quit race. | Guarantees serialport released + IBJA timer cleared on every quit path (menu-Quit, Ctrl+Q, window-close). | As spec'd; consolidated with items 13 and IPC listener cleanup. |
+| 13 | `main.js:1348-1354` | `mainWindow.webContents.session.clearCache()` inside the before-quit handler (fallback to `session.defaultSession.clearCache()` if window is destroyed). | Bounds on-disk HTTP cache growth over shop lifetime. | As spec'd. |
+| 14 | `main.js:257-272` | Splash fallback timer shortened 15 s → 10 s. Now sends `boot:degraded` IPC to renderer before force-showing so the renderer can toast the user. | Better ops signal. | As spec'd. Renderer-side toast is a future workstream (not blocking). |
+| 15 | `preload.js` | **Not modified in AA.** Audit only: `logger.info` / `logger.error` unused after Phase-3 renderer migration, but removing them requires a renderer-side grep pass that's out of scope for a main-process perf workstream. Fold `fs.getPicturesDirectory` into `fs.writeImage` also requires renderer refactor. | Deferred: hygiene, not perf-critical. | See Skipped section. |
+| 16 | `client/…/scale.service.ts:59` | Verified: renderer already stores and calls the `unsubscribe` returned from `scale.onReading()`. No leak. | Confirmed via grep; no change needed. | Read-only check. |
+| 17 | `scale.js:24-40, 66, 110, 191-199, 202` | `serialport` require wrapped in `loadSerialPort()` thunk that lazy-loads on first `listPorts` / `open` / `status` call. `available` exported as a getter that triggers load-attempt. | 30-80 ms cold boot savings; broken binding no longer crashes app. | As spec'd. |
+| 18 | `main.js:44` (`getBackupService`) | Achieved by item 10 pattern. | Loads on first `backup:*` handler. | As spec'd. |
+| 19 | `main.js:46-47` (`getWhatsappService` / `getIbjaService`) | Achieved by item 10 pattern. | Loads on first respective handler. | As spec'd. |
+| 20 | `src-electron/hide_from_screenShare.js` | **DELETED.** Confirmed by grep: only referenced in `.md` docs, never `require`d. Commit `450c8f9`. | Removes dead code; prevents accidental future require crash. | As spec'd. |
+| 21 | `main.js:1264-1267` | Added a `logger.warn` when `scheduleNextIbjaFire()` is called with no `pool`. | Observability. | As spec'd. |
+| 22 | `main.js:117-119` | Added `idleTimeout: 60_000` to mysql2 pool config. | Releases idle connections after 60 s. | As spec'd. |
+| 23 | `main.js:110-112` | `connectionLimit: 10` → `4`. | ~2-3 MB per unused pool slot. | As spec'd. |
+| 25 | `main.js:34` | `logger.transports.file.maxSize = 5 * 1024 * 1024` (5 MB rotation). | Bounds `%APPDATA%\<app>\logs\` growth. | As spec'd. |
+
+#### Items skipped (with reasons)
+
+- **Item 8 partial:** `v8CacheOptions: 'bypassHeatCheck'` — this is a packaged-build optimization; Z item 24 (electron-builder `build` block) is flagged as scope-creep for a follow-on workstream. Setting `'bypassHeatCheck'` before packaging exists has no useful effect. Left at `'code'` for now.
+- **Item 15:** Preload audit action items (drop unused `logger.info` / `logger.error`, fold `fs.getPicturesDirectory` into `fs.writeImage`). Both would require touching renderer-side consumers under `client/**`, which is BB's territory this session. Filed as follow-on hygiene; not perf-critical.
+- **Item 24:** electron-builder `build` block — explicitly out of scope per Z's own note ("Do not do this in AA. Flag it."). Follow-on workstream: `chore(packaging): add electron-builder build block + NSIS target`.
+
+#### Verification
+
+- **`node -c src-electron/main.js`** and **`node -c src-electron/scale.js`** — pass.
+- **`npx electron .` boot smoke test (10 s window):**
+  - `[main] mainWindow ready-to-show; awaiting splash-close IPC.` logged. The `ready-to-show` handler fires — pre-paint pattern confirmed live.
+  - No `preload-error` event fired. Sandbox flip did not break preload load.
+  - No missing-module crashes from the lazy-require refactor.
+  - `Failed to load URL: http://localhost:4200/… ERR_CONNECTION_REFUSED` — expected, `ng serve` not running in the sandbox harness.
+  - GPU process `exit_code=143` — expected, `timeout` sent SIGTERM.
+- **`ng test --watch=false --browsers=ChromeHeadless`** — 32 of 32 pass.
+- **`ng build --configuration=production`** — succeeds. Pre-existing budget warnings (BB/W workstreams) unchanged; no new AA warnings.
+
+#### Sandbox flip verification
+
+`preload.js` audit: only `require('electron')` at the top. `contextBridge` and `ipcRenderer` are both sandbox-compatible per Electron docs. All 13 API namespaces / 76 methods route through `ipcRenderer.invoke` or `ipcRenderer.on/removeListener`, none of which need a Node context. The Electron boot log shows no `preload-error` fired after the sandbox flip. All `window.electronAPI.*` methods remain exposed under the new posture.
+
+#### Before / after measurement
+
+**RAM.** I could not capture a live Task Manager reading from this harness (no interactive Windows session available to the subagent). The static estimate rolls up Z's per-item impact figures:
+
+| Source | Estimated saving |
+|---|---:|
+| Item 2 (V8 heap cap) | 50-100 MB |
+| Item 3 (disk-cache cap) | disk-only, no idle-RAM impact |
+| Item 5 (sandbox on) | 20-40 MB per renderer |
+| Item 6 (splash bare tab) | ~30 MB |
+| Item 7 (spellcheck off) | 30-50 MB |
+| Items 22-23 (pool tuning) | 5-15 MB |
+| **Total idle-RAM reduction estimate** | **135-235 MB** |
+
+This lands comfortably above the workstream target of "50-100 MB idle RAM". Actual measurement requires a live boot outside the subagent sandbox; a developer running `npm run electron-dev` can capture RSS from Task Manager before/after this branch.
+
+**Cold-boot time.** Static estimate:
+
+| Source | Estimated saving |
+|---|---:|
+| Item 1 (backgroundColor + ready-to-show) | 200-600 ms perceived (no white flash) |
+| Items 10, 17 (lazy native requires) | 40-100 ms wall clock |
+| **Total cold-boot improvement estimate** | **240-700 ms** |
+
+Above the workstream target of "200-800 ms cold boot".
+
+#### Regressions discovered
+
+None during the smoke test. The `ready-to-show` handler fires. The lazy-require thunks return the correct exports (verified by tracing the `getBackupService()` → `require('./backup')` path). The `before-quit` handler uses `event.preventDefault()` + `app.exit(0)` so the double-quit race is avoided by design.
+
+One subtle behavior change worth flagging: `pool.end()` now runs during `before-quit`, not `window-all-closed`. On Windows this makes no difference (closing the last window fires `before-quit` → `will-quit` → `quit`); on macOS this is strictly better because menu-Quit previously bypassed the cleanup path.
+
+#### Deferred
+
+- **Renderer `boot:degraded` toast** (item 14 downstream): main-process emits the event; renderer-side handler + Sonner toast is a small follow-up under `client/**`.
+- **Preload hygiene cleanup** (item 15): drop unused `logger.info` / `logger.error` methods, fold `fs.getPicturesDirectory` into `fs.writeImage`. Renderer-side refactor.
+- **electron-builder `build` block** (item 24): follow-on workstream. Full ASAR + NSIS packaging. Z explicitly flagged as scope-creep.
+- **`v8CacheOptions: 'bypassHeatCheck'`** (item 8 partial): depends on packaged build (item 24).
 
 ### 18.3 Workstream BB — status (chart + large-screen responsive)
 
