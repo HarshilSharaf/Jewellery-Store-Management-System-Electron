@@ -28,6 +28,7 @@ TABLES=(
   "AuditLog.sql"
   "SavingSchemes.sql"
   "SavingSchemeInstallments.sql"
+  "Karigars.sql"
   "KarigarJobCards.sql"
   "KarigarLedger.sql"
   "StockMovements.sql"

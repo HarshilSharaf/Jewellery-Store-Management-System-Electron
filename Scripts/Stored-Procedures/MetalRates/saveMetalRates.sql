@@ -10,6 +10,7 @@ CREATE PROCEDURE `save_metal_rates`(
 BEGIN
   DECLARE i INT DEFAULT 0;
   DECLARE arr_len INT DEFAULT 0;
+  DECLARE l_actor_type VARCHAR(50) DEFAULT NULL;
 
   DECLARE error_code INT DEFAULT 0;
   DECLARE error_msg VARCHAR(255) DEFAULT '';
@@ -17,10 +18,18 @@ BEGIN
   BEGIN
     ROLLBACK;
     GET STACKED DIAGNOSTICS CONDITION 1 error_code = MYSQL_ERRNO, error_msg = MESSAGE_TEXT;
-    SELECT CONCAT('Error: ', error_code, ', ', error_msg) AS message;
+    RESIGNAL;
   END;
 
   SET time_zone = 'SYSTEM';
+
+  IF p_setByUserId IS NOT NULL THEN
+    SELECT `type` INTO l_actor_type FROM users WHERE uid = p_setByUserId;
+    IF l_actor_type IS NOT NULL AND l_actor_type = 'employee' THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Forbidden: canEditShopSettings';
+    END IF;
+  END IF;
+
   SET arr_len = JSON_LENGTH(p_rates);
 
   START TRANSACTION;

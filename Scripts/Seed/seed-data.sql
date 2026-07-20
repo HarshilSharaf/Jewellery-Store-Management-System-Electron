@@ -61,10 +61,10 @@ VALUES
 -- Users (all passwords = admin123)
 -- =============================================
 INSERT INTO `users` (`userName`, `email`, `password`, `type`, `permissions`) VALUES
-  ('admin',    'admin@radiancejewellers.in',    '$2a$10$aeAxxnSaN5dOiPhW.g8AEep46P4lm0KtiOpe8Lv/TVxHjn0BYm//u', 'admin',    JSON_OBJECT('all', TRUE)),
-  ('manager',  'manager@radiancejewellers.in',  '$2a$10$aeAxxnSaN5dOiPhW.g8AEep46P4lm0KtiOpe8Lv/TVxHjn0BYm//u', 'manager',  JSON_OBJECT('inventory', TRUE, 'billing', TRUE, 'reports', TRUE, 'settings', FALSE)),
-  ('cashier1', 'cashier1@radiancejewellers.in', '$2a$10$aeAxxnSaN5dOiPhW.g8AEep46P4lm0KtiOpe8Lv/TVxHjn0BYm//u', 'employee', JSON_OBJECT('billing', TRUE, 'inventory', 'read')),
-  ('cashier2', 'cashier2@radiancejewellers.in', '$2a$10$aeAxxnSaN5dOiPhW.g8AEep46P4lm0KtiOpe8Lv/TVxHjn0BYm//u', 'employee', JSON_OBJECT('billing', TRUE, 'inventory', 'read'));
+  ('admin',    'admin@radiancejewellers.in',    '$2a$10$aeAxxnSaN5dOiPhW.g8AEep46P4lm0KtiOpe8Lv/TVxHjn0BYm//u', 'admin',    NULL),
+  ('manager',  'manager@radiancejewellers.in',  '$2a$10$aeAxxnSaN5dOiPhW.g8AEep46P4lm0KtiOpe8Lv/TVxHjn0BYm//u', 'manager',  JSON_OBJECT('costsVisible', TRUE, 'canCancelInvoice', TRUE, 'canBackup', FALSE, 'canDeleteCustomer', TRUE, 'canDeleteProduct', TRUE, 'canEditShopSettings', TRUE, 'canManageUsers', FALSE, 'canForfeitSavingScheme', FALSE)),
+  ('cashier1', 'cashier1@radiancejewellers.in', '$2a$10$aeAxxnSaN5dOiPhW.g8AEep46P4lm0KtiOpe8Lv/TVxHjn0BYm//u', 'employee', JSON_OBJECT('costsVisible', FALSE, 'canCancelInvoice', FALSE, 'canBackup', FALSE, 'canDeleteCustomer', FALSE, 'canDeleteProduct', FALSE, 'canEditShopSettings', FALSE, 'canManageUsers', FALSE, 'canForfeitSavingScheme', FALSE)),
+  ('cashier2', 'cashier2@radiancejewellers.in', '$2a$10$aeAxxnSaN5dOiPhW.g8AEep46P4lm0KtiOpe8Lv/TVxHjn0BYm//u', 'employee', JSON_OBJECT('costsVisible', FALSE, 'canCancelInvoice', FALSE, 'canBackup', FALSE, 'canDeleteCustomer', FALSE, 'canDeleteProduct', FALSE, 'canEditShopSettings', FALSE, 'canManageUsers', FALSE, 'canForfeitSavingScheme', FALSE));
 
 -- =============================================
 -- Category masters (metal type / jewellery type / design style)
@@ -489,3 +489,186 @@ VALUES (UUID(), 50000.00, 'upi', 'UPI-4412998', 'Partial — remainder pending',
 
 -- Fast-forward the invoice counter past the 8 seeded invoices
 UPDATE `shopsettings` SET currentInvoiceCounter = 9 WHERE id = 1;
+
+-- =============================================
+-- Additional Old-gold receipts (unlinked, plus a few more linked to invoices)
+-- =============================================
+INSERT INTO `oldgoldreceipts`
+  (receiptGuid, invoiceId, customerId, grossWeight, testedPurityCode,
+   testedPurityPercent, deductionPercent, ratePerGram, creditAmount, remarks)
+VALUES
+  (UUID(), NULL, 1,  6.500, '916', 91.60, 3.00, 7150.00, 46475.00, 'Old bangle - awaiting invoice'),
+  (UUID(), NULL, 5, 12.000, '750', 75.00, 4.00, 5850.00, 70200.00, 'Broken chain'),
+  (UUID(),
+   (SELECT id FROM invoices WHERE invoiceNumber = 'RAD/2026/00002'),
+   2, 3.000, '916', 91.60, 3.00, 7145.00, 21435.00, 'Small earring exchange');
+UPDATE invoices
+   SET oldGoldCreditAmount = oldGoldCreditAmount + 21435.00
+ WHERE invoiceNumber = 'RAD/2026/00002';
+
+-- =============================================
+-- Karigars
+-- =============================================
+INSERT INTO `karigars` (karigarGuid, name, phone, address, remarks) VALUES
+  (UUID(), 'Ramesh Sonar',    '9820011122', 'Bhuleshwar Lane, Mumbai',   'Bangles + chains specialist'),
+  (UUID(), 'Suresh Karigar',  '9820022233', 'Zaveri Bazaar, Mumbai',     'Setting + polish'),
+  (UUID(), 'Mahesh Patel',    '9820033344', 'Kalbadevi Rd, Mumbai',      'Filigree work'),
+  (UUID(), 'Deepak Jangid',   '9820044455', 'Sector 21, Jaipur',         'Kundan / meenakari'),
+  (UUID(), 'Nitin Chhipa',    '9820055566', 'Choti Chaupar, Jaipur',     'Diamond setting'),
+  (UUID(), 'Kishan Bhai',     '9820066677', 'Manek Chowk, Ahmedabad',    'Weight-work specialist'),
+  (UUID(), 'Prakash Meena',   '9820077788', 'Johri Bazaar, Jaipur',      'Signet + stamping');
+
+-- =============================================
+-- Karigar job cards (spanning last 60 days)
+-- =============================================
+INSERT INTO `karigarjobcards`
+  (jobGuid, karigarId, issueDate, expectedReturnDate, receivedDate,
+   issuedGrossWeight, issuedPurityCode, issuedStones,
+   receivedGrossWeight, receivedNetWeight, receivedStoneWeight,
+   wastagePercentAllowed, wastageGramsActual, makingCharge,
+   settlementAmount, settlementPaymentMode, settledAt,
+   description, status)
+VALUES
+  (UUID(), 1, DATE_SUB(CURDATE(), INTERVAL 55 DAY), DATE_SUB(CURDATE(), INTERVAL 45 DAY), DATE_SUB(CURDATE(), INTERVAL 44 DAY),
+   50.000, '916', NULL,
+   48.850, 48.850, 0.000, 3.00, 1.150, 22000.00,
+   22000.00, 'cash', DATE_SUB(CURDATE(), INTERVAL 43 DAY),
+   '22K bangle pair — 25g each', 'settled'),
+  (UUID(), 2, DATE_SUB(CURDATE(), INTERVAL 48 DAY), DATE_SUB(CURDATE(), INTERVAL 40 DAY), DATE_SUB(CURDATE(), INTERVAL 39 DAY),
+   30.000, '916', JSON_ARRAY(JSON_OBJECT('stoneType', 'ruby', 'weight', 0.5, 'value', 4000)),
+   28.700, 28.200, 0.500, 4.00, 1.300, 15500.00,
+   15500.00, 'online', DATE_SUB(CURDATE(), INTERVAL 38 DAY),
+   'Necklace setting with ruby drops', 'settled'),
+  (UUID(), 3, DATE_SUB(CURDATE(), INTERVAL 35 DAY), DATE_SUB(CURDATE(), INTERVAL 28 DAY), DATE_SUB(CURDATE(), INTERVAL 27 DAY),
+   18.500, '916', NULL,
+   17.800, 17.800, 0.000, 4.00, 0.700, 8500.00,
+   0.00, NULL, NULL,
+   'Filigree pendant chain', 'received'),
+  (UUID(), 4, DATE_SUB(CURDATE(), INTERVAL 30 DAY), DATE_SUB(CURDATE(), INTERVAL 20 DAY), DATE_SUB(CURDATE(), INTERVAL 18 DAY),
+   42.000, '916', JSON_ARRAY(JSON_OBJECT('stoneType', 'kundan', 'weight', 2.0, 'value', 12000)),
+   39.900, 37.900, 2.000, 5.00, 2.100, 28000.00,
+   28000.00, 'online', DATE_SUB(CURDATE(), INTERVAL 15 DAY),
+   'Bridal kundan choker', 'settled'),
+  (UUID(), 5, DATE_SUB(CURDATE(), INTERVAL 22 DAY), DATE_SUB(CURDATE(), INTERVAL 14 DAY), DATE_SUB(CURDATE(), INTERVAL 12 DAY),
+   12.000, '750', JSON_ARRAY(JSON_OBJECT('stoneType', 'diamond', 'weight', 0.8, 'value', 45000)),
+   11.400, 10.600, 0.800, 3.00, 0.600, 22500.00,
+   22500.00, 'cheque', DATE_SUB(CURDATE(), INTERVAL 10 DAY),
+   'Diamond hoop pair', 'settled'),
+  (UUID(), 1, DATE_SUB(CURDATE(), INTERVAL 20 DAY), DATE_SUB(CURDATE(), INTERVAL 12 DAY), NULL,
+   35.000, '916', NULL,
+    0.000, 0.000, 0.000, 3.00, 0.000, 0.00,
+    0.00, NULL, NULL,
+   'Mangalsutra chain (in progress)', 'issued'),
+  (UUID(), 6, DATE_SUB(CURDATE(), INTERVAL 18 DAY), DATE_SUB(CURDATE(), INTERVAL 8 DAY), DATE_SUB(CURDATE(), INTERVAL 7 DAY),
+   65.000, '916', NULL,
+   62.500, 62.500, 0.000, 4.00, 2.500, 32000.00,
+   0.00, NULL, NULL,
+   'Kada set (weight work)', 'received'),
+  (UUID(), 2, DATE_SUB(CURDATE(), INTERVAL 14 DAY), DATE_SUB(CURDATE(), INTERVAL 6 DAY), DATE_SUB(CURDATE(), INTERVAL 5 DAY),
+    9.500, '750', JSON_ARRAY(JSON_OBJECT('stoneType', 'cz', 'weight', 0.3, 'value', 800)),
+    9.100, 8.800, 0.300, 3.00, 0.400, 7800.00,
+    5000.00, 'cash', DATE_SUB(CURDATE(), INTERVAL 4 DAY),
+   'Solitaire style ring - partial payment', 'settled'),
+  (UUID(), 4, DATE_SUB(CURDATE(), INTERVAL 12 DAY), DATE_SUB(CURDATE(), INTERVAL 4 DAY), NULL,
+   28.000, '916', JSON_ARRAY(JSON_OBJECT('stoneType', 'polki', 'weight', 1.2, 'value', 18000)),
+    0.000, 0.000, 0.000, 5.00, 0.000, 0.00,
+    0.00, NULL, NULL,
+   'Polki earring pair (in progress)', 'issued'),
+  (UUID(), 7, DATE_SUB(CURDATE(), INTERVAL 10 DAY), DATE_SUB(CURDATE(), INTERVAL 3 DAY), DATE_SUB(CURDATE(), INTERVAL 2 DAY),
+   14.500, '916', NULL,
+   14.000, 14.000, 0.000, 3.00, 0.500, 4800.00,
+    0.00, NULL, NULL,
+   'Signet ring — traditional stamp', 'received'),
+  (UUID(), 3, DATE_SUB(CURDATE(), INTERVAL 8 DAY), DATE_SUB(CURDATE(), INTERVAL 1 DAY), NULL,
+    6.000, 'S999', NULL,
+    0.000, 0.000, 0.000, 2.50, 0.000, 0.00,
+    0.00, NULL, NULL,
+   'Silver filigree pendant', 'issued'),
+  (UUID(), 5, DATE_SUB(CURDATE(), INTERVAL 6 DAY), CURDATE(), NULL,
+   22.000, '750', JSON_ARRAY(JSON_OBJECT('stoneType', 'diamond', 'weight', 1.5, 'value', 85000)),
+    0.000, 0.000, 0.000, 3.00, 0.000, 0.00,
+    0.00, NULL, NULL,
+   'Tennis bracelet - diamond line', 'issued');
+
+-- Karigar ledger entries derived from the job cards above
+INSERT INTO `karigarledger`
+  (ledgerGuid, karigarId, jobId, entryType, direction, weightGrams, amount, txnDate, notes, actorUserId)
+SELECT UUID(), j.karigarId, j.id, 'issue',   'debit',  j.issuedGrossWeight, 0, j.issueDate,
+       CONCAT('Metal issued for job ', j.jobGuid), 1
+  FROM karigarjobcards j;
+
+INSERT INTO `karigarledger`
+  (ledgerGuid, karigarId, jobId, entryType, direction, weightGrams, amount, txnDate, notes, actorUserId)
+SELECT UUID(), j.karigarId, j.id, 'receive', 'credit', j.receivedGrossWeight, 0, j.receivedDate,
+       CONCAT('Metal received for job ', j.jobGuid), 1
+  FROM karigarjobcards j
+ WHERE j.receivedDate IS NOT NULL;
+
+INSERT INTO `karigarledger`
+  (ledgerGuid, karigarId, jobId, entryType, direction, weightGrams, amount, txnDate, notes, actorUserId)
+SELECT UUID(), j.karigarId, j.id, 'adjustment', 'credit', NULL, j.makingCharge, j.receivedDate,
+       'Making charge accrued', 1
+  FROM karigarjobcards j
+ WHERE j.receivedDate IS NOT NULL AND j.makingCharge > 0;
+
+INSERT INTO `karigarledger`
+  (ledgerGuid, karigarId, jobId, entryType, direction, weightGrams, amount, txnDate, notes, actorUserId)
+SELECT UUID(), j.karigarId, j.id, 'payment', 'debit', NULL, j.settlementAmount, DATE(j.settledAt),
+       CONCAT('Settlement ', COALESCE(j.settlementPaymentMode, 'cash')), 1
+  FROM karigarjobcards j
+ WHERE j.status = 'settled' AND j.settlementAmount > 0;
+
+-- =============================================
+-- Saving schemes (mix of statuses)
+-- =============================================
+INSERT INTO `savingschemes`
+  (schemeGuid, customerId, planName, monthlyAmount, tenureMonths, bonusInstallments,
+   startDate, expectedMaturityDate, totalPaid, status)
+VALUES
+  (UUID(), 1,  'Golden Harvest',    5000.00, 11, 1, DATE_SUB(CURDATE(), INTERVAL 5 MONTH), DATE_ADD(DATE_SUB(CURDATE(), INTERVAL 5 MONTH), INTERVAL 11 MONTH), 25000.00, 'active'),
+  (UUID(), 2,  'Silver Sparkle',    3000.00, 11, 1, DATE_SUB(CURDATE(), INTERVAL 3 MONTH), DATE_ADD(DATE_SUB(CURDATE(), INTERVAL 3 MONTH), INTERVAL 11 MONTH), 9000.00,  'active'),
+  (UUID(), 3,  'Diamond Dream',    10000.00, 11, 1, DATE_SUB(CURDATE(), INTERVAL 4 MONTH), DATE_ADD(DATE_SUB(CURDATE(), INTERVAL 4 MONTH), INTERVAL 11 MONTH), 40000.00, 'active'),
+  (UUID(), 4,  'Golden Harvest',    5000.00, 11, 1, DATE_SUB(CURDATE(), INTERVAL 12 MONTH), DATE_ADD(DATE_SUB(CURDATE(), INTERVAL 12 MONTH), INTERVAL 11 MONTH), 55000.00, 'matured'),
+  (UUID(), 5,  'Silver Sparkle',    3000.00, 11, 1, DATE_SUB(CURDATE(), INTERVAL 13 MONTH), DATE_ADD(DATE_SUB(CURDATE(), INTERVAL 13 MONTH), INTERVAL 11 MONTH), 33000.00, 'matured'),
+  (UUID(), 6,  'Diamond Dream',    10000.00, 11, 1, DATE_SUB(CURDATE(), INTERVAL 2 MONTH), DATE_ADD(DATE_SUB(CURDATE(), INTERVAL 2 MONTH), INTERVAL 11 MONTH), 20000.00, 'active'),
+  (UUID(), 7,  'Golden Harvest',    5000.00, 11, 1, DATE_SUB(CURDATE(), INTERVAL 6 MONTH), DATE_ADD(DATE_SUB(CURDATE(), INTERVAL 6 MONTH), INTERVAL 11 MONTH), 30000.00, 'active'),
+  (UUID(), 8,  'Silver Sparkle',    3000.00, 11, 1, DATE_SUB(CURDATE(), INTERVAL 8 MONTH), DATE_ADD(DATE_SUB(CURDATE(), INTERVAL 8 MONTH), INTERVAL 11 MONTH), 6000.00,  'forfeited'),
+  (UUID(), 9,  'Golden Harvest',    5000.00, 11, 1, DATE_SUB(CURDATE(), INTERVAL 1 MONTH), DATE_ADD(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), INTERVAL 11 MONTH), 5000.00,  'active'),
+  (UUID(), 10, 'Diamond Dream',    10000.00, 11, 1, DATE_SUB(CURDATE(), INTERVAL 4 MONTH), DATE_ADD(DATE_SUB(CURDATE(), INTERVAL 4 MONTH), INTERVAL 11 MONTH), 40000.00, 'active');
+
+-- Forfeited scheme reason
+UPDATE `savingschemes`
+   SET forfeitedAt = DATE_SUB(NOW(), INTERVAL 30 DAY),
+       forfeitReason = 'Customer lapsed after 2 installments'
+ WHERE customerId = 8;
+
+-- Redeemed scheme: link to existing invoice 1 as a demonstration
+UPDATE `savingschemes`
+   SET status = 'redeemed',
+       redeemedInvoiceId = (SELECT id FROM invoices WHERE invoiceNumber = 'RAD/2026/00001'),
+       redeemedAmount    = 60000.00,
+       redeemedAt        = DATE_SUB(NOW(), INTERVAL 25 DAY)
+ WHERE customerId = 4;
+
+-- Installments matching totalPaid on each scheme (idempotent counts)
+INSERT INTO `savingschemeinstallments`
+  (installmentGuid, schemeId, installmentNumber, amount, paymentMode, refNumber, receiptDate, actorUserId)
+SELECT UUID(),
+       s.id,
+       n.n,
+       s.monthlyAmount,
+       ELT(1 + (n.n - 1) MOD 3, 'cash', 'online', 'upi'),
+       CASE ELT(1 + (n.n - 1) MOD 3, 'cash', 'online', 'upi')
+         WHEN 'cash'   THEN NULL
+         WHEN 'online' THEN CONCAT('NEFT-', LPAD(s.id * 100 + n.n, 6, '0'))
+         ELSE                CONCAT('UPI-',  LPAD(s.id * 100 + n.n, 6, '0'))
+       END,
+       DATE_ADD(s.startDate, INTERVAL (n.n - 1) MONTH),
+       3
+FROM savingschemes s
+JOIN (
+  SELECT 1 AS n UNION ALL SELECT 2  UNION ALL SELECT 3  UNION ALL SELECT 4  UNION ALL SELECT 5
+  UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8  UNION ALL SELECT 9  UNION ALL SELECT 10
+  UNION ALL SELECT 11
+) n ON n.n <= FLOOR(s.totalPaid / s.monthlyAmount);
+
