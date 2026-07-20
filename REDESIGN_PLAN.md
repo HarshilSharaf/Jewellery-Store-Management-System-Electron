@@ -266,3 +266,61 @@ Deferred out of C:
 **Explicit Phase 2 items (not touched, and correctly not):** HUID scanner input, weighing-scale RS-232/USB-HID, old-gold exchange cart UI, saving-scheme module, karigar module, reports v1, RBAC route guards, backup/restore.
 
 **Not yet integrated with real hardware or network:** WhatsApp Business API (P3 with 2-6 week lead time), IBJA rate auto-fetch (P3), e-invoice IRP integration (deferred until pilot crosses ₹5cr turnover).
+
+### 7.5 Workstream E — status
+
+**Landed 2026-07-20, submodule commits on `redesign/ui-modernization`: `8b007e0` (amount-in-words utility + spec), `2c7e1e9` (print-invoice rebuild), `5e3c185` (settings page rebuild), `5da10fb` (navbar rate pill styling). Rate-pill component files themselves were swept into F's `bea86d3` FA→Lucide commit while E's changes were staged.** Parent-repo submodule pointer not bumped. Ran on top of F's parallel work; stayed strictly out of F's territory (data-table, customers, inventory, orders/orders-page + order-details + order-products-details + order-payments + prepare-order, dashboard, sidebar, styles.scss, assets/partials).
+
+**Invoice print fields shipped (A4 GST):** shop identity block (name, addr1/addr2, city+state+pincode, phone, email, GSTIN, PAN, state+stateCode) driven by ShopSettingsService; invoice title (Tax Invoice / e-Invoice); invoice number + date + time; HSN in metadata + per-line; customer bill-to (name, phone, address, city+state+stateCode, GSTIN, PAN); place-of-supply block; supply-type indicator (intra vs inter). Line table: S.No, description with SKU + HUID + purity chip, HSN, gross wt, net wt, rate/g, metal value, making, wastage, stone, discount, taxable, CGST%+amt + SGST%+amt (intra) OR IGST%+amt (inter), line total. Totals block: subtotal-taxable, making, wastage, stone, CGST/SGST or IGST, discount (subtractive), old-gold credit (subtractive), round-off, grand total in serif tabular-nums numerals. Amount-in-words below totals via `numberToIndianRupees`. Old-gold credit callout when `oldGoldCreditAmount > 0`. e-Invoice QR placeholder square rendered only when `isEinvoice` true (with IRN below if present). Bank/UPI block placeholder + terms + signature. Intra vs inter driven by `shop.stateCode === placeOfSupplyStateCode` (parses `(NN)` suffix or falls back to customer `stateCode`).
+
+**Invoice print thermal (80mm):** same fields stacked single-column with `@page { size: 80mm auto; margin: 3mm }`. Header center-aligned with serif shop name. Line items condensed per-purity rows with taxable + tax breakdown. Grand total prominent, amount-in-words italic footer, thank-you kicker.
+
+**Print toggle:** `variant` signal, default A4, toolbar buttons `[A4] [80mm] [Print]`. Toolbar hidden during `@media print` and toggleable via `[showToolbar]` input; the embedded usage inside order-details' hidden `#print-container` keeps default A4 with toolbar off.
+
+**Preview route added:** `/orders/print-invoice/:orderGuid` renders `PrintInvoicePreviewComponent` which either accepts state from a router `navigate` call (as F's dormant `printInvoice()` in `order-details.component.ts` already tried to do) or fetches by orderGuid via `OrderService.getOrderDetails`. Route registered in `orders-routing.config.ts`.
+
+**Settings tabs — real vs stub:**
+
+| Tab | Status |
+|---|---|
+| Shop identity | **Real.** All fields validated; state dropdown auto-fills stateCode; GSTIN pattern-validated; logo upload reuses `FileSystemService.compressAndSaveImage`. Save calls `save_shop_settings` via DbBridge. |
+| Tax & invoice | **Real.** Invoice prefix editable, current counter readonly, reset-to-N button confirms via SweetAlert then calls `reset_invoice_counter` (proc TBD — falls through silently if absent). Tax slabs displayed read-only from `get_tax_slabs`. |
+| Metal rates | **Real.** AM+PM inputs for every purity from `get_purities`, copy-AM→PM button, effective-date picker, saves via `save_metal_rates`. Historical rates table (last 30 days) fed by `get_metal_rates_history` proc — proc TBD; UI stays empty if absent, no crash. |
+| Print & hardware | **Real** for default variant + thermal printer name (localStorage-backed). **Stub cards** for barcode/scale ("Configure — Phase 2"). |
+| Backup | **Stub.** Export + restore buttons log intent and toast "not yet implemented". No IPC channels added. |
+| Users & permissions | **Stub.** Shows two hard-coded rows (admin, cashier1). Add-user form validates then toasts "not yet implemented". No `get_all_users` / `add_user` proc call — those are Phase 2 alongside RBAC. |
+| Database | **Real, unchanged.** Existing MySQL creds editor moved under this tab; save + relaunch flow preserved. |
+
+**Settings routing:** single `/settings` route unchanged; tabs are in-component (hand-rolled buttons + signal, not `mat-tab-group`) so Material stays out of this module.
+
+**Navbar rate pill:** `RatePillComponent` at `client/app/shared/components/navbar/rate-pill/`. Sits between the search area and the theme toggle (`.nav-item--rate-pill`). Icon `lucideIndianRupee`. Click opens an inline popover (no dialog primitive — hand-rolled with document-click + escape-key close handlers). Popover shows AM + PM `hlm-input` fields for 999 / 916 / 750, session toggle, effective date picker, save + "Full editor →" (routes to `/settings`). Save calls `MetalRatesService.save()` per session; SweetAlert toast on success + failure.
+
+**Files touched (this workstream, submodule tree — parent repo untouched):**
+
+- `client/app/shared/utils/amount-in-words.ts` (new)
+- `client/app/shared/utils/amount-in-words.spec.ts` (new)
+- `client/app/shared/utils/indian-states.ts` (new, 36 codes + GSTIN regex)
+- `client/app/modules/orders/components/print-invoice/print-invoice.component.{ts,html,scss}` (rewritten; Rajdhani `@import` removed; two-variant renderer; Intl en-IN money; `@page` rules per variant)
+- `client/app/modules/orders/components/print-invoice-preview/print-invoice-preview.component.{ts,html,scss}` (new preview wrapper)
+- `client/app/modules/orders/orders-routing.config.ts` (added `print-invoice/:orderGuid` route)
+- `client/app/modules/settings/components/settings-page/settings-page.component.{ts,html,scss}` (fully rewritten as tabbed shell; keeps DB tab intact)
+- `client/app/shared/services/ShopSettings/shop-settings.service.ts` (falls through to `DbBridgeService` when `window.electronAPI.shopSettings` is absent; adds `resetInvoiceCounter`)
+- `client/app/shared/services/MetalRates/metal-rates.service.ts` (same fallthrough; adds `getHistory`)
+- `client/app/shared/components/navbar/rate-pill/rate-pill.component.{ts,html,scss}` (new, swept into F's `bea86d3` while E was staging)
+- `client/app/shared/components/navbar/navbar.component.{ts,html,scss}` (import + slot + `.nav-item--rate-pill` margin — minimal, alongside F's FA→Lucide edits)
+
+**Deferred / requires WS A follow-up (documented, not blocking):**
+
+1. **`reset_invoice_counter` stored proc** — settings > tax tab expects it; called via `db.execute` wrapped in try/catch so a missing proc doesn't crash. WS A owns adding.
+2. **`get_metal_rates_history` stored proc** — settings > rates tab expects it for the last-30-days table; try/catch protected. WS A owns adding.
+3. **Dedicated IPC bridges for `metalRates.*` and `shopSettings.*`** — services already prefer these but fall through to stored procs today. Wiring them in `src-electron/preload.js` + `src-electron/main.js` (parent repo) would give the settings + pill flows a purpose-built surface, but the DbBridge path is fully functional right now.
+4. **Barcode / scale hardware config** — placeholder Phase 2 cards; no code paths.
+5. **Real user list + add-user + backup** — stub UI with toasts, no backend calls.
+
+**Verification at close of E:**
+
+- `ng build --configuration=development` — PASS (14–15s, warnings are the pre-existing Sass `@import` deprecations; no new warnings introduced by E).
+- `ng test --watch=false --browsers=ChromeHeadless` — **15/15 SUCCESS** (7 baseline + 8 new `numberToIndianRupees` cases: zero, one rupee, one hundred, rupees+paise, one crore, 99.99L with paise, paise rollover, negative amount).
+- Live app walkthrough: not run (Electron `npm start` not exercised as part of E — F's concurrent SCSS refactor still had uncommitted `styles.scss` + `assets/partials/*` changes in the working tree; stashing them restores a clean build, so E's changes are known-clean).
+
+**Explicit non-goals kept in E (correctly not touched):** RBAC, saving-scheme, karigar, reports v1, WhatsApp send, IBJA fetch, real backup/restore, real user CRUD, scale/scanner integration.
