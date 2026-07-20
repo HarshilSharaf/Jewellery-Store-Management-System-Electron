@@ -1180,8 +1180,88 @@ Not pushed. Parent submodule pointer not bumped.
 
 ### 12.4 Workstream N — status
 
-_TBD_
+**Landed 2026-07-20 on submodule branch `redesign/ui-modernization` (parent-repo pointer not bumped).** Reports v1 module (four screens), Backup + Restore UI wired to K's IPC channels, and client-side RBAC guards (Workstream O folded in per plan). Angular tests 15 → **19/19** green; `ng build --configuration=development` clean (only pre-existing NG8107 warnings in L / M templates, none in N's tree).
+
+**Files added — submodule (Angular tree, all under `client/`):**
+
+- `interfaces/Reports/report-day-book.ts`, `report-sales-register.ts`, `report-stock-summary.ts`, `report-gstr1.ts` — mirror K's `Backend/Shared/interfaces/report-*.ts` line-for-line.
+- `interfaces/Backup/backup.ts` — `BackupConfig`, `CreateBackupPayload/Result`, `RestoreBackupPayload`, `ListBackupsPayload/Entry`, `DeleteBackupPayload`.
+- `interfaces/Auth/user-permissions.ts` — mirrors K's `UserRole`, `UserPermissionsMap`, `UserPermissionsResponse`.
+- `shared/services/Reports/reports.service.ts` — signal-based facade around K's `window.electronAPI.reports.*` with `DbBridge` fallback; `dayBook`, `salesRegister`, `stockSummaryByPurity`, `gstr1Export` (post-processes rows vs HSN summary), `lowStockByCategory`.
+- `shared/services/Backup/backup.service.ts` — wraps `window.electronAPI.backup.*` and `dialog.chooseDirectory`. `create`, `restore`, `list` (auto-shapes `{ ok, entries }` return), `delete`, `pickDirectory`.
+- `shared/services/Auth/permissions.service.ts` — canonical client-side permission map. Caches per session, invalidates on `AuthService.login/logout`. Exposes computed signals `costsVisible()`, `canCancelInvoice()`, `canBackup()`, `canDeleteCustomer()`, `canDeleteProduct()`, `canEditShopSettings()`, `canManageUsers()`, `canForfeitSavingScheme()`. Parses K's `permissions` JSON blob with the same 0/1/'0'/'1'/true/false coercion.
+- `shared/guards/permission.guard.ts` — functional guard factory `permissionGuard(flag)`. Redirects to `/dashboard` with a "Access denied" toast when the flag is false.
+- `shared/utils/csv-export.ts` — `buildCSV`, `exportToCSV`, `exportToJSON`. RFC-4180 escaping (commas, quotes, CR, LF). Downloads via `Blob` + object URL.
+- `shared/utils/csv-export.spec.ts` — 4 unit tests: empty rows, header + body, escape edge cases, explicit column ordering with nullish fills. All pass.
+- `modules/reports/reports-routing.config.ts` and five components under `modules/reports/components/`:
+  - `reports-landing/` — 4-tile grid (`col-span-6 md:col-span-4`) with Lucide icons + description + "Open →" arrow. Routes to the four sub-screens.
+  - `day-book/` — date-range picker, refresh + CSV export, per-day table (cash / cheque / UPI / card / online / total / invoice count / taxable value), bottom totals row.
+  - `sales-register/` — date range + customer typeahead (debounced 2-char threshold, drop-down list) + status pill segmented control (all / paid / pending / cancelled) + CSV export. Horizontally scrollable table with invoice number, date, customer, GSTIN, PoS, taxable + CGST/SGST/IGST + old-gold credit + grand total + status chip. Column totals in tfoot.
+  - `stock-summary/` — as-of date picker, per-purity chip (metal-type colouring), unit count + gross / net wt + tag valuation + cost valuation. Cost column hidden entire-column when `!permissions.costsVisible()`; CSV export also omits the cost column for non-admins.
+  - `gstr1-export/` — month picker (defaults to previous month), refresh + JSON export. Two tables: invoice rows + HSN rollup. JSON shape: `{ gstin, fp, b2b: [], b2cs: [], hsn: [] }` with the K SP's `invoiceType` field driving b2b vs b2cs bucketing. Filename `gstr1-YYYY-MM.json`. Caption: "Ready for CA upload".
+
+**Files added — Electron main:**
+
+- `src-electron/main.js` (extended) — new IPC handler `dialog:chooseDirectory` that spawns `dialog.showOpenDialog(mainWindow, { properties: ['openDirectory', 'createDirectory'] })`. Returns `{ canceled, filePaths }` normalised.
+- `src-electron/preload.js` (extended) — new `window.electronAPI.dialog.chooseDirectory` surface.
+
+**Files extended (submodule):**
+
+- `modules/settings/components/settings-page/settings-page.component.ts` and `.html` — Backup tab replaced end-to-end. Two forms (`backupForm` with passphrase + confirm + min-length-8 + mismatch validator; `restoreForm` with passphrase). Existing-backups table with radio-selection, size, created-at, per-row delete (admin-only + double-confirmed). Directory picker button uses the new dialog IPC. Progress state ("Encrypting..." / "Restoring...") toggles the primary button label. Friendly `ENOENT` → "MySQL client tools not detected" banner + Swal error. Passphrase / confirm / restore-passphrase have independent show/hide toggles. Restore is behind a two-step confirm and triggers `utilityService.relaunch()` on success. Backup + Users tabs also hidden at the tab-strip level when `!canBackup` / `!canManageUsers`; if the currently-active tab becomes hidden, resets to `shop`.
+- `shared/services/Auth/auth.service.ts` — `login()` and `logout()` now call `permissionsService.invalidate()` so a fresh permission fetch runs for the incoming user.
+- `shared/components/app-shell/rail/rail.component.ts` + `.html` — added `Reports` nav item (`lucideChartLine`, `/reports`) after `Catalog` (coordinated with M's Schemes + Karigar insertions). Settings rail entry now hides when `!canEditShopSettings` so employees never see it.
+- `modules/main/main-routing.config.ts` — new `/reports` route (all users). `/settings` route gains `permissionGuard('canEditShopSettings')` in addition to the existing `AuthGuard`.
+- **RBAC field-visibility hides applied (all use `permissions.costsVisible()` / `permissions.canDeleteProduct()` / `permissions.canDeleteCustomer()` / `permissions.canCancelInvoice()`):**
+  - `modules/inventory/components/view-product-details/view-product-details.component.html` — Cost price row + Delete-product icon button.
+  - `modules/inventory/components/available-products/available-products.component.html` — Cost overlay in grid tile + Cost column in table view + Delete-product row action (both grid + table).
+  - `modules/inventory/components/product-details-form/product-details-form.component.html` — Cost price input (edit mode).
+  - `modules/inventory/components/available-products/components/add-product-form/add-product-form.component.html` — Cost price input (create form).
+  - `modules/customers/components/view-details/view-details.component.html` — Delete customer icon button.
+  - `modules/customers/components/customers-page/customers-page.component.html` — Delete customer row action.
+  - `modules/orders/components/order-details/order-details.component.html` — Cancel invoice icon button in header + side-panel "Cancel invoice" action.
+  - `modules/orders/components/orders-page/orders-page.component.html` — Cancel invoice row action.
+- Each of those component `.ts` files also gained `PermissionsService` injection + `getUserPermissions()` call in `ngOnInit` so the signals are populated before the template evaluates.
+
+**Recipes added (labeled Workstream N block, appended to `styles.scss`):**
+
+`.report-tile`, `.report-tile__icon/body/title/desc/cta`, `.date-range-toolbar` + `__group`, `.data-total-row`, `.status-chip--pending`, `.export-btn`, `.report-empty`, `.report-caption`, `.forbidden-banner`, `.input-with-toggle`, `.purity-chip__dot`. Also two purity-chip metal-type modifiers (`--silver`, `--platinum`) at the stock-summary component level. No existing recipes duplicated; H's `.detail-shell`, `.icon-btn`, `.form-section`, `.field-grid`, `.field-label`, I's `.status-chip`, `.money`, `.money-lg`, J's `.tabs-strip`, `.section-heading` are all reused as-is.
+
+**CSV / JSON export details:**
+
+- CSV — Blob URL + `<a>` click + revoke. Header row derived from the first row's keys (or an explicit column list). Numeric cells written as numbers so Excel keeps `tabular-nums` alignment on import. Empty rows short-circuit to `""` (no download). Currency values written as raw numbers, not INR-prefixed strings, so downstream sheets stay sortable.
+- JSON — Pretty-printed with `JSON.stringify(payload, null, 2)`. GSTR-1 file is grouped into `b2b` (has `invoiceNumber` + `customerGstin`) and `b2cs` (no `invoiceNumber` on the row), with `hsn` rollup pulled straight from K's SP's second result set. File name pattern `gstr1-YYYY-MM.json`.
+
+**Backup + restore flow:**
+
+- Works — Encrypted archive create (mysqldump piped into AES-256-GCM stream, written as `.sql.enc`, raw `.sql` deleted), archive list (reads `*.enc` from either the shop's `backupDir` or the app's `userData/backups` fallback), archive delete (admin gated on both client and IPC side), restore (decrypt to temp `.sql`, pipe into `mysql`, unlink, then relaunch the app).
+- Works — Directory picker via `dialog:chooseDirectory` (new IPC).
+- Depends on mysqldump on PATH — friendly banner + Swal message surfaces "Install MySQL client tools" when `ENOENT` is raised; regex on the returned error message.
+- Stub — MySQL binaries are not auto-detected pre-first-attempt; the "prereq" banner only lights up after a failed create, per plan section 12.1 note about deferring auto-detection.
+
+**RBAC coverage summary:**
+
+- Every server-side SP guard K wired (`cancel_order`, `delete_customer`, `delete_product`, `save_shop_settings`, `save_metal_rates`, `reset_invoice_counter`, `forfeit_saving_scheme`, `add_user`, `update_user`, `delete_user`) now has a matching client-side hide via the corresponding permission flag. `saveOrder`, `save_metal_rates`, `reset_invoice_counter`, and `save_shop_settings` are further guarded at the route level via `permissionGuard('canEditShopSettings')` on `/settings`.
+- Cost-visibility hides applied on: inventory list (grid + table), product view, product create form, product edit form, and stock-summary report cost column. Client-side cost hide is defence-in-depth; server-side SP `get_stock_summary_by_purity` already zeroes the cost aggregate for non-admins.
+- Delete-customer and Delete-product buttons hidden on both list and detail views.
+- Cancel-invoice buttons hidden on both orders-page row actions and order-details header + side panel.
+- Saving-scheme "Forfeit" button hide is M's territory — flagged in follow-up so M can consume `permissions.canForfeitSavingScheme()`; N did not touch M's tree.
+- Backup + Users tabs hidden inside Settings when `!canBackup` / `!canManageUsers`. Reports route allows every logged-in user; the stock-summary cost column and CSV column are hidden for non-admins.
+
+**Test + build:**
+
+- `ng build --configuration=development` — PASS. No new errors. Only warnings are pre-existing NG8107 optional-chain notices in L's `print-invoice` and M's `enroll-scheme-form` templates.
+- `ng test --watch=false --browsers=ChromeHeadless` — **19/19 SUCCESS** (was 15/15; N adds 4 `csv-export.spec.ts` cases).
+
+**Deferred / follow-up:**
+
+1. **Saving-scheme Forfeit hide.** M owns saving-schemes; the `canForfeitSavingScheme()` signal is live in `PermissionsService` but M's forfeit button needs a `@if (permissions.canForfeitSavingScheme())` wrapper. Zero-conflict change for M to apply.
+2. **Audit-log viewer.** Not scoped for N. Would want a new SP (K didn't ship a `get_audit_log`) + a settings-tab table.
+3. **GSTR-1 shape polish for actual portal upload.** V1 shape is `{ gstin, fp, b2b, b2cs, hsn }`; the live GST portal schema evolves — a real deployment should run this through a CA-signed transformer before uploading. Caption on-screen sets expectations.
+4. **mysqldump auto-detect at tab-load.** Currently the "MySQL client tools not detected" banner only appears after a failed backup attempt. Could pre-flight with a `--version` probe, but K's IPC channels don't expose one and adding it is main-process scope.
+5. **Directory picker inline fallback.** If the `dialog:chooseDirectory` IPC ever gets stripped again, the text input still works. `BackupService.pickDirectory()` returns null in that case; the button remains a no-op rather than throwing.
+
+Not pushed. Parent submodule pointer not bumped.
 
 ### 12.5 Workstream O — status (if not folded into N)
 
-_TBD_
+Folded into 12.4. See "RBAC coverage summary" above.
