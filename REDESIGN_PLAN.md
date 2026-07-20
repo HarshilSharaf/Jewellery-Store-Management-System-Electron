@@ -1934,7 +1934,66 @@ _TBD_
 
 ### 16.4 Workstream X — status
 
-_TBD_
+**Closed 2026-07-20.** Self-directed UI polish sweep across all P3 screens on submodule branch `redesign/ui-modernization`. Time-boxed to ~2 hours; auditor prioritised money/date display + serif page-title overflow over deep restructures (out of scope this pass — Y and W own those).
+
+**Fixes landed (14 files across 3 commits).**
+
+| Commit | Category | Files |
+|---|---|---|
+| `04faef1` fix(consistency): standardize date + money formatting on list/detail views | Date + money consistency | 5 |
+| `f8e26d0` fix(detail-views): truncate long titles with tooltip fallback | Overflow / truncation | 6 |
+| `d204d04` fix(a11y-visual): tabular-nums on numeric columns and delta pills | Visual jitter | 3 |
+
+**Punch list — fixed.**
+
+| # | Screen | Issue | Fix |
+|---|---|---|---|
+| 1 | `categories-page` | date format `'MMM d, y'` diverged from every other list (which use `'d MMM yyyy'`) | switched pipe token + added `tabular-nums` |
+| 2 | `karigar-detail` (ledger) | date format `'d MMM yy'` — abbreviated year unique to this screen | switched to `'d MMM yyyy'` |
+| 3 | `karigar-detail` (active jobs) | date format `'d MMM'` — year dropped entirely | switched to `'d MMM yyyy'` + `tabular-nums` |
+| 4 | `job-card-detail` (ledger) | same `'d MMM yy'` divergence | switched to `'d MMM yyyy'` |
+| 5 | `orders-page` (Books) | money formatter set `maximumFractionDigits: 0`, trimmed paise from every invoice amount — inconsistent with order-details, reports, and the print template which all display 2 decimals | set 2 decimals |
+| 6 | `customers/view-details` (saving-schemes section) | `&#8377;{{ formatINR(scheme.monthlyAmount) }}` double-prefixed the rupee sign (`formatINR` already emits ₹ via `style: 'currency'`) | dropped the manual prefix |
+| 7 | `customer/view-details` (h1 name) | long customer names spilled beyond the header bar with no truncation | ellipsis + `title` fallback + `min-width: 0` on flex parent |
+| 8 | `karigar-detail` (h1 name) | same overflow | ellipsis + title + `min-width: 0` |
+| 9 | `saving-scheme-detail` (h1 plan name) | same overflow | ellipsis + title + `min-width: 0` |
+| 10 | `inventory/view-product-details` (h1) | same overflow on long product descriptions | ellipsis + title + `min-width: 0` |
+| 11 | `dashboard/main` (KPI delta pill) | `.kpi-delta` class had no `tabular-nums` — pct values jittered across three tiles when refreshing | added `font-variant-numeric: tabular-nums` in component scss |
+| 12 | `karigar-page` (list) | `.col-date`, `.col-return` cells had no `tabular-nums` | added `tabular-nums` |
+| 13 | `repair-page` (list) | same as above | added `tabular-nums` |
+
+**Punch list — deferred (and why).**
+
+| Screen | Issue | Reason for deferral |
+|---|---|---|
+| `dashboard/recent-orders` | Component is dead code — imports exist but no template references its selector (`app-recent-orders`). Uses raw money without formatter, `date:'fullDate'`, Bootstrap `bg-warning`/`bg-success` badges (rather than `.status-chip` recipe), icon-only button missing `aria-label`, no empty state | Polishing dead code doesn't ship user value; note as **candidate for removal** in a future code-cleanup pass |
+| `login` | "Forgot?" link is dead (`href="#"` + `preventDefault`) | No password-reset flow exists in the app; not a bug per-se, more a missing feature |
+| `orders/prepare-order` (cart-builder) | `removeLine` has no confirm prompt when a line has a discount applied | Would require adding a Swal-driven flow that touches state W is likely converting to signals; too intrusive for a polish pass. Note as follow-up |
+| `styles.scss` semantic tokens | `--color-success-*`, `--color-warning-*`, `--color-danger-*` are never overridden in the `html[data-theme="dark"]` block — dark mode uses the light-mode success/warning/danger surfaces which look muddy on dark panels | `styles.scss` is Y's territory this cycle; flagged for a future token-consistency pass |
+| `app-shell` | No skip-to-content link for keyboard users; also, sidebar `<nav>` lacks a top-level `aria-label` | App-shell structural surface is off-limits per rules. Note as follow-up |
+| `data-table` shared component | Contains an `<img>` with no placeholder fallback + a raw `date` pipe (no format) | Component is currently unreferenced; note as removal candidate |
+| Dashboard KPI + customer credit `formatINR` | Uses `maximumFractionDigits: 0` — drops paise from headline tiles | Judgement call — for large-font display totals, dropping paise reads cleaner; leaving as-is |
+| `orders-page` (Books) customer column | Long customer names may wrap onto two lines (no `max-width` + ellipsis on `.books-row__customer`) | Table cells wrap by default, no overflow, low severity — deferred |
+
+**Widely-repeated patterns worth pulling into shared recipes (candidate follow-ups for `styles.scss`, owned by Y or a later consistency pass).**
+
+1. **`.view-header__name` — repeated in 4 detail screens with identical rules.** Each screen redefines the same serif-2rem title styling in its own scss. The overflow-ellipsis-with-tooltip pattern I added is now duplicated four times. Candidate recipe: `.detail-title` with truncation baked in, so future detail pages inherit correct behaviour.
+2. **`.col-date` / `.col-return` — `tabular-nums` should be automatic on any column cell containing a date pipe.** Currently each list template opts in individually and forgets sometimes. Candidate: a table utility class or a `.data-table__cell--date` recipe.
+3. **Date format** — every screen except the four fixed above uses `'d MMM yyyy'` for dates. Worth extracting to a shared constant or Angular DatePipe alias so drift doesn't sneak in again (would live outside `styles.scss`, likely in `shared/utils/`).
+
+**Verify.**
+
+- `ng build --configuration=development` — PASS (only pre-existing warnings unrelated to X's changes).
+- `ng test --watch=false --browsers=ChromeHeadless` — **32/32 PASS**.
+- `ng build --configuration=hi` — PASS. Warnings are all Y's pending Appearance-tab translations, none from X's edits.
+
+**Concurrency-safety honoured.**
+
+- Zero edits under `client/app/modules/settings/**` (Y's turf).
+- Zero edits to `client/styles.scss` (Y's turf).
+- Zero edits under `client/locale/**` (T's turf).
+- Zero structural edits to `client/app/shared/components/app-shell/**`.
+- All edits additive to templates W is also touching (`loading="lazy"` added by W to `customers/view-details` was preserved through the same-file edit).
 
 ### 16.5 Workstream Y — status
 
