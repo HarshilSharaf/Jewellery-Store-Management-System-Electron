@@ -233,4 +233,36 @@ Deferred out of C:
 
 ## 8. Phase 1 close — verification and outstanding
 
-_Filled in during reconciliation at close of Phase 1._
+**Reconciled 2026-07-20 as parent commit `b5e579d`.** Submodule pointer bumped to include Workstreams C + D; plan prose sections 1-6 restored (they had been stripped in a prior mid-flight pass).
+
+**End-to-end gates:**
+
+- `ng test --watch=false --browsers=ChromeHeadless` — **7/7 SUCCESS** on the integrated tree.
+- `ng build --configuration=development` — **PASS** (14.1s). Warnings are legacy Sass `@import` deprecations from `animate.css` and `lightning-admin` partials, unchanged from baseline.
+- Backend / DB rebuild — verified during Workstream A close (`docker compose down -v && docker compose up -d` green, seed data loads, all rewritten procs smoke-tested).
+
+**Phase 1 originally scoped, now landed:**
+
+- Schema drop-and-rebuild around jewellery-domain data model (Workstream A).
+- Cart engine rewrite with metal / wastage / making (flat/perGram/percent) / stones / per-line GST split (Workstream A + D wired).
+- Shop identity + metal rates + tax slabs as first-class settings (Workstream A + D wired).
+- IPC channels for metal rates + shop settings (Workstream A).
+- Design system foundation: Radix Colors tokens, dark mode, Inter + Hind + Instrument Serif self-hosted (Workstreams B + C).
+- Tailwind + Spartan/brain (alpha.563 — Angular 19 compatible) + @ng-icons/lucide installed (Workstream C).
+- Login + navbar + dashboard reskin end-to-end (Workstreams B + C).
+- Frontend interface + service + page sync to new backend shapes (Workstream D).
+- Customers pages gain GSTIN/PAN/remarks fields; inventory pages gain SKU/HUID/purity/weights/making/wastage/prices; orders show formatted `invoiceNumber` + full per-line breakdown; create-invoice wired end-to-end against `save_order`.
+
+**Deferred / follow-up items (still Phase 1 scope, not P2):**
+
+1. **Full A4 GST + 80mm thermal invoice rebuild.** Print template currently minimal placeholder. Needs shop-identity-from-settings, HSN column, amount-in-words, e-invoice QR placeholder field, two-CSS-one-template with `@page { size: 80mm auto }` variant. Reference: [ClearTax GST invoice format](https://cleartax.in/s/gst-invoice).
+2. **Full Angular Material → Spartan primitives migration.** Customers, inventory, orders, settings still use `mat-form-field` / `mat-select` / `mat-table` / `mat-paginator` / `mat-stepper` / `mat-dialog` / `mat-datepicker` / `mat-tooltip` / `mat-icon`. Material theme retained globally at reduced surface. Migrate module-by-module.
+3. **Dashboard FA → Lucide swap.** Dashboard was reskinned in B but its icons are still FontAwesome; swap to Lucide via `@ng-icons/lucide` and drop `@fortawesome/fontawesome-free` when the last usage is gone.
+4. **Rajdhani Google Fonts `@import` in `print-invoice.component.scss`.** Last CDN font holdout; move to self-hosted or drop the family in the invoice rebuild.
+5. **Legacy Sass `@import`s** in `client/styles.scss` (`animate.css`, `lightning-admin`) — Dart Sass 3.0 will remove these. Not urgent, but on the runway.
+6. **Settings page rebuild.** Current settings page still edits DB connection only. Needs shop identity form, tax rate editor, invoice-series editor, print prefs, gold-rate source picker (manual vs IBJA feed), backup schedule stub, WhatsApp API keys stub (P3 gates it), RBAC users editor, hardware test buttons stub (P2 gates it).
+7. **Rate management screen.** No UI yet to edit today's AM/PM rates. Right now they live in seed data only. Needs a compact "Today's rates" form callable from the navbar or settings.
+
+**Explicit Phase 2 items (not touched, and correctly not):** HUID scanner input, weighing-scale RS-232/USB-HID, old-gold exchange cart UI, saving-scheme module, karigar module, reports v1, RBAC route guards, backup/restore.
+
+**Not yet integrated with real hardware or network:** WhatsApp Business API (P3 with 2-6 week lead time), IBJA rate auto-fetch (P3), e-invoice IRP integration (deferred until pilot crosses ₹5cr turnover).
