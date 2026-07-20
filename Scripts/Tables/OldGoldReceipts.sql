@@ -1,0 +1,22 @@
+CREATE TABLE `oldgoldreceipts` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `receiptGuid` CHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+  `invoiceId` INT DEFAULT NULL,
+  `customerId` INT NOT NULL,
+  `grossWeight` DECIMAL(10, 3) NOT NULL,
+  `testedPurityCode` VARCHAR(10) DEFAULT NULL,
+  `testedPurityPercent` DECIMAL(5, 2) DEFAULT NULL,
+  `deductionPercent` DECIMAL(5, 2) NOT NULL DEFAULT 0.00,
+  `ratePerGram` DECIMAL(12, 2) NOT NULL,
+  `creditAmount` DECIMAL(14, 2) NOT NULL,
+  `remarks` TEXT,
+  `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_oldgoldreceipts_receiptGuid` (`receiptGuid`),
+  KEY `idx_oldgoldreceipts_invoiceId` (`invoiceId`),
+  KEY `idx_oldgoldreceipts_customerId` (`customerId`),
+  CONSTRAINT `fk_oldgoldreceipts_invoice` FOREIGN KEY (`invoiceId`) REFERENCES `invoices` (`id`) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT `fk_oldgoldreceipts_customer` FOREIGN KEY (`customerId`) REFERENCES `customers` (`id`) ON UPDATE CASCADE,
+  CONSTRAINT `fk_oldgoldreceipts_purity` FOREIGN KEY (`testedPurityCode`) REFERENCES `purities` (`code`) ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

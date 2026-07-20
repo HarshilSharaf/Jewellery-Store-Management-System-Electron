@@ -21,6 +21,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     query:      (sql, options) => ipcRenderer.invoke('db:query', sql, options),
   },
 
+  metalRates: {
+    getCurrent: (options)          => ipcRenderer.invoke('metalRates:getCurrent', options),
+    save:       (payload, options) => ipcRenderer.invoke('metalRates:save', payload, options),
+  },
+
+  shopSettings: {
+    get:  (options)          => ipcRenderer.invoke('shopSettings:get', options),
+    save: (payload, options) => ipcRenderer.invoke('shopSettings:save', payload, options),
+  },
+
   store: {
     get:              (key)        => ipcRenderer.invoke('store:get', key),
     set:              (key, value) => ipcRenderer.invoke('store:set', key, value),

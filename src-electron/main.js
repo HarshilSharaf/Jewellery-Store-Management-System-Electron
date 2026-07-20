@@ -230,6 +230,70 @@ function registerIpcHandlers() {
     }, options?.timeoutMs);
   });
 
+  // -- Metal rates ---------------------------------------------------------
+  // Thin, named channels for the two most-common shop-counter flows so the
+  // renderer never has to embed the SP name in a raw SQL string. Falls
+  // through to the same pool as db:execute.
+  ipcMain.handle('metalRates:getCurrent', async (_event, options) => {
+    return runWithTimeout(async () => {
+      const [results] = await pool.query('call get_current_metal_rates();');
+      return results;
+    }, options?.timeoutMs);
+  });
+
+  ipcMain.handle('metalRates:save', async (_event, payload, options) => {
+    return runWithTimeout(async () => {
+      const [results] = await pool.execute(
+        'call save_metal_rates(?, ?, ?, ?, ?);',
+        [
+          payload?.effectiveDate,
+          payload?.session,
+          payload?.source ?? 'manual',
+          payload?.setByUserId ?? null,
+          JSON.stringify(payload?.rates ?? []),
+        ],
+      );
+      return results;
+    }, options?.timeoutMs);
+  });
+
+  // -- Shop settings -------------------------------------------------------
+  ipcMain.handle('shopSettings:get', async (_event, options) => {
+    return runWithTimeout(async () => {
+      const [results] = await pool.query('call get_shop_settings();');
+      return results;
+    }, options?.timeoutMs);
+  });
+
+  ipcMain.handle('shopSettings:save', async (_event, payload, options) => {
+    return runWithTimeout(async () => {
+      const [results] = await pool.execute(
+        'call save_shop_settings(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);',
+        [
+          payload?.shopName,
+          payload?.gstin,
+          payload?.pan ?? null,
+          payload?.addressLine1,
+          payload?.addressLine2 ?? null,
+          payload?.city,
+          payload?.state,
+          payload?.stateCode,
+          payload?.pincode,
+          payload?.phone,
+          payload?.email ?? null,
+          payload?.logoPath ?? null,
+          payload?.invoicePrefix,
+          payload?.invoiceStartFrom,
+          payload?.currentInvoiceCounter,
+          payload?.defaultCurrency,
+          payload?.timezone,
+          payload?.roundOffEnabled ? 1 : 0,
+        ],
+      );
+      return results;
+    }, options?.timeoutMs);
+  });
+
   // -- Store -----------------------------------------------------------------
   ipcMain.handle('store:get',    (_event, key)        => store.get(key));
   ipcMain.handle('store:set',    (_event, key, value) => { store.set(key, value); return true; });

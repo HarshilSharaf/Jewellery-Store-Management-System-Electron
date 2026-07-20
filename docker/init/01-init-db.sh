@@ -5,16 +5,32 @@ SCRIPTS_DIR="/scripts"
 
 echo "=== Creating tables ==="
 
+# Dependency-safe order: parents before children. `mastercategories`,
+# `productcategories`, `subcategories` and `purities` are referenced by
+# `products`; `users` is referenced by `metalrates`/`auditlog`; `customers`
+# and `invoices` are referenced by line items / payments / oldgold; the P2
+# stubs come last because their FKs point back at the phase-1 core tables.
 TABLES=(
-  "Users.sql"
-  "Customers.sql"
+  "ShopSettings.sql"
+  "Purities.sql"
+  "TaxSlabs.sql"
   "MasterCategories.sql"
   "ProductCategories.sql"
   "SubCategories.sql"
+  "Users.sql"
+  "Customers.sql"
   "Products.sql"
+  "MetalRates.sql"
   "Invoices.sql"
-  "Invoice_Products_Mapping.sql"
+  "InvoiceLineItems.sql"
   "Payments.sql"
+  "OldGoldReceipts.sql"
+  "AuditLog.sql"
+  "SavingSchemes.sql"
+  "SavingSchemeInstallments.sql"
+  "KarigarJobCards.sql"
+  "KarigarLedger.sql"
+  "StockMovements.sql"
 )
 
 for file in "${TABLES[@]}"; do
@@ -23,11 +39,9 @@ for file in "${TABLES[@]}"; do
 done
 
 # =============================================================================
-# Run forward migrations in lexical order. Rollback scripts (V*__rollback.sql)
-# are intentionally excluded — they are only executed manually. Migrations run
-# AFTER tables but BEFORE stored procedures so that indexed columns exist
-# before any proc references them, and so that seed data lands on the fully
-# migrated schema.
+# Post-launch forward migrations. Empty during Phase 1 (destructive rebuild).
+# See Scripts/Migrations/README.md for policy. Rollback files (V*__rollback.sql)
+# are intentionally excluded — they are only executed manually.
 # =============================================================================
 if [ -d "$SCRIPTS_DIR/Migrations" ]; then
   echo "=== Applying migrations ==="
