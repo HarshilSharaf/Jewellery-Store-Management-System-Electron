@@ -13,6 +13,14 @@
       "root": "",
       "sourceRoot": "client",
       "prefix": "app",
+      "i18n": {
+        "sourceLocale": "en-IN",
+        "locales": {
+          "hi": "client/locale/messages.hi.xlf",
+          "gu": "client/locale/messages.gu.xlf",
+          "mr": "client/locale/messages.mr.xlf"
+        }
+      },
       "architect": {
         "build": {
           "builder": "@angular-devkit/build-angular:application",
@@ -63,6 +71,18 @@
               "extractLicenses": false,
               "sourceMap": true,
               "namedChunks": true
+            },
+            "hi": {
+              "localize": ["hi"],
+              "outputPath": "dist/hi"
+            },
+            "gu": {
+              "localize": ["gu"],
+              "outputPath": "dist/gu"
+            },
+            "mr": {
+              "localize": ["mr"],
+              "outputPath": "dist/mr"
             }
           },
           "defaultConfiguration": "production"
