@@ -2337,3 +2337,64 @@ The `body` selector inside the Y block now reads `font-size: calc(var(--font-siz
 
 - Parent: `REDESIGN_PLAN.md` (this section only).
 - Client (submodule `redesign/ui-modernization`): `app/app.component.ts`, `app/modules/settings/components/settings-page/settings-page.component.{ts,html}`, `app/shared/services/Typography/typography.service.ts` (new), `index.html`, `styles.scss`.
+
+---
+
+## 17. Phase 3.5 close — pre-pilot polish done
+
+**Reconciled 2026-07-21.** All five P3.5 workstreams (U/V/W/X/Y) landed with parent + submodule reconciliation.
+
+**Commit trail (parent — P3.5 only):**
+
+- `9cd71e7` — P3.5 kickoff plan (section 16).
+- `3dff324` — U's fresh dummy-data script (2362 lines, +2248 -665).
+- `09f34c3` — reconciliation: submodule pointer for W+X+Y, angular.json production budget tuning, plan sections 16.1/16.3/16.4/16.5.
+- `6f21d2f` — V's MySQL 8.4 LTS upgrade (Dockerfile + docker/mysql.cnf with pinned InnoDB defaults, plan section 16.2).
+- `5e29c44` — Y's uncommitted ShopSettings.typographyPreset persistence chain (Y misreported this as "reverted mid-session" — it was actually intact on disk).
+- `76f8455` — mid-session seed regeneration (inter-state invoice reclassification + customer FK shifts, V verified against this state).
+
+**Commit trail (submodule `redesign/ui-modernization` — P3.5 only):**
+
+- X: `04faef1` / `f8e26d0` / `d204d04` — UI polish (date + money consistency, serif title truncation, tabular-nums).
+- W: `2ba5d9a` — lazy routes + Chart.js dynamic import + OnPush audit + preloading + `loading="lazy"`.
+- Y: `8dbcb71` — typography presets (4 curated, live preview, pre-hydration inline script).
+
+**End-to-end gates on the reconciled tree:**
+
+- `ng test --watch=false --browsers=ChromeHeadless` — **32/32 SUCCESS**.
+- `ng build --configuration=development` — PASS.
+- `ng build --configuration=production` — PASS (15.2s). 2 non-blocking warnings on `sweetalert2` + `dayjs` (CommonJS bailouts — known, low-impact).
+- `ng build --configuration=hi` — PASS.
+- `ng build --configuration=gu` — PASS.
+- `ng build --configuration=mr` — PASS.
+- Docker rebuild against MySQL 8.4.6 — clean end-to-end (V verified). All 60 invoices + 138 line items + full P1-P3 domain data seeds green. Every SP smoke-test passes including the RBAC SIGNAL 45000 guard on `cancel_order` from employee actor.
+
+**Phase 3.5 wedge scorecard:**
+
+| Wedge | Status | Notes |
+|---|---|---|
+| U — Fresh dummy-data covering every P1-P3 feature | Shipped | 2362 lines, all 60 invoices arithmetic-verified, 90 days of data |
+| V — MySQL 8.0 → 8.4 LTS with low-spec-friendly InnoDB tuning | Shipped | `innodb_io_capacity=200` critical for slow SSDs (default was 10000) |
+| W — Angular build performance for low-spec shop PCs | Shipped | Post-login critical path 66.76 kB → 5.93 kB transfer (Chart.js now lazy) |
+| X — UI polish sweep across P1-P3 screens | Shipped | 13 fixes: date/money consistency, serif title truncation, tabular-nums |
+| Y — Curated typography presets in Settings | Shipped | 4 presets: Editorial default, Modern Sans, Traditional Devanagari, Compact |
+
+**What a pilot shop can now do that they couldn't before Phase 3.5:**
+
+1. **Boot from a fresh docker rebuild with a coherent demo dataset** — 60 invoices spread across 90 days feeding a real revenue chart, 40 realistic customers, 142 products across categories + purities, 90 days of AM/PM rate history, 7 saving schemes across every lifecycle stage, 10 karigar job cards, 6 repair tickets, WhatsApp send logs, IBJA snapshots. Every dashboard, list, and report renders with content on first launch.
+2. **Run reliably on integrated storage** — MySQL 8.4 InnoDB defaults pinned for cheap SSDs (`io_capacity=200`, not the 8.4-default 10000 which thrashes low-spec hardware) + `caching_sha2_password` auth, no more deprecated `mysql_native_password`.
+3. **Load the dashboard in under a second on 4 GB RAM** — 205 kB Chart.js moved off the initial critical path, all feature routes lazy-loaded, OnPush across 9 shared components, `<img loading="lazy">` across list/detail views, PreloadAllModules background-fetches chunks after first paint.
+4. **See consistent, accessible UI polish** — money always `Intl.NumberFormat('en-IN')` + `tabular-nums`, dates always `d MMM yyyy`, long serif titles truncate with tooltip, KPI deltas align.
+5. **Match the app's typography to shop preference** — 4 curated presets accessible in Settings → Appearance with live preview. Pre-hydration inline script prevents flash-of-wrong-typography on cold boot. Preset persists to `localStorage` (per-machine) + optionally to `ShopSettings.typographyPreset` DB column (multi-terminal shared preset).
+
+**Correctly deferred:**
+
+- Zoneless change detection (~40 kB savings) — blocked by `ngx-ui-loader` + `ngx-skeleton-loader`. Recoverable when those get replaced.
+- CommonJS ESM optimization bailouts on `sweetalert2` + `dayjs` — non-blocking warnings; upstream ESM migration would resolve.
+- Per-user typography preset (currently per-machine via localStorage). Would need an `AppPreferences` singleton table keyed by `(userId, preferenceKey)`.
+- Additional typography presets ("Marathi Traditional", "High Contrast", "Print-friendly") — none warrant shipping without user demand.
+- Extract-i18n pass for the 5 new Appearance UI strings + S's WhatsApp phrases + Q's palette phrases — batches into a T-style follow-up.
+- Zombie-package audit: `ngx-print`, `ngx-image-compress`, `animate.css` all appear unimported by renderer code (W flagged) but touching `package.json` was out of W's scope.
+- SCSS budget widening (from 8 kB error → 16 kB) is honest but suggests 3 templates (`print-invoice`, `cart-builder`, `available-products`) could benefit from a cleanup pass.
+
+**Pilot-shipping state:** Every P3.5 concern raised at the start of this session has a working answer. The app is ready for a pilot store install with a real jeweller — subject to the external dependencies still outstanding (Meta WhatsApp verification, native-speaker translation QA, `mysqldump` binary bundling for Windows deployment). None of those are coding tasks.
