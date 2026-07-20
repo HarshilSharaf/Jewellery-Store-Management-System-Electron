@@ -24,6 +24,8 @@ const bcrypt = require('bcryptjs');
 const logger = require('electron-log');
 const backupService = require('./backup');
 const scaleService = require('./scale');
+const whatsappService = require('./whatsapp');
+const ibjaService = require('./ibja');
 
 const isDev = !app.isPackaged;
 
@@ -749,6 +751,260 @@ function registerIpcHandlers() {
     return scaleService.getReading();
   });
 
+  // -- Repair tickets ------------------------------------------------------
+  ipcMain.handle('repair:create', async (_event, payload, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute(
+        'call create_repair_ticket(?, ?, ?, ?, ?, ?, ?, ?, ?);',
+        [
+          payload?.customerGuid,
+          payload?.receivedByUserId ?? null,
+          payload?.itemDescription,
+          payload?.itemPhotoPath ?? null,
+          payload?.weight ?? null,
+          payload?.estimatedCharge ?? null,
+          payload?.estimatedReturnDate ?? null,
+          payload?.notes ?? null,
+          payload?.karigarGuid ?? null,
+        ],
+      );
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  ipcMain.handle('repair:updateStatus', async (_event, payload, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute(
+        'call update_repair_status(?, ?, ?, ?, ?, ?);',
+        [
+          payload?.ticketGuid,
+          payload?.newStatus,
+          payload?.actorUserId ?? null,
+          payload?.actualCharge ?? null,
+          payload?.paymentMode ?? null,
+          payload?.paymentRef ?? null,
+        ],
+      );
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  ipcMain.handle('repair:settle', async (_event, payload, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute(
+        'call settle_repair_ticket(?, ?, ?, ?, ?);',
+        [
+          payload?.ticketGuid,
+          payload?.actualCharge,
+          payload?.paymentMode,
+          payload?.paymentRef ?? null,
+          payload?.actorUserId ?? null,
+        ],
+      );
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  ipcMain.handle('repair:linkToKarigar', async (_event, payload, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute(
+        'call link_repair_to_karigar(?, ?, ?, ?);',
+        [
+          payload?.ticketGuid,
+          payload?.karigarGuid,
+          payload?.karigarJobGuid ?? null,
+          payload?.actorUserId ?? null,
+        ],
+      );
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  ipcMain.handle('repair:getDetails', async (_event, ticketGuid, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute('call get_repair_ticket_details(?);', [ticketGuid]);
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  ipcMain.handle('repair:getAll', async (_event, args, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute(
+        'call get_all_repair_tickets(?, ?, ?, ?, ?, ?);',
+        [
+          args?.status ?? null,
+          args?.customerSearch ?? null,
+          args?.dateFrom ?? null,
+          args?.dateTo ?? null,
+          args?.pageSize ?? 20,
+          args?.page ?? 1,
+        ],
+      );
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  ipcMain.handle('repair:getByCustomer', async (_event, customerGuid, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute(
+        'call get_repair_tickets_by_customer(?);', [customerGuid]);
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  ipcMain.handle('repair:delete', async (_event, payload, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute(
+        'call delete_repair_ticket(?, ?);',
+        [payload?.ticketGuid, payload?.actorUserId ?? null],
+      );
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  // -- WhatsApp -----------------------------------------------------------
+  async function readWhatsappConfig() {
+    if (!pool) return null;
+    const [rows] = await pool.query(
+      'SELECT whatsappPhoneNumberId, whatsappBusinessAccountId, whatsappApiToken, whatsappEnabled ' +
+      'FROM shopsettings WHERE id = 1;'
+    );
+    return (rows && rows[0]) ? rows[0] : null;
+  }
+
+  ipcMain.handle('whatsapp:send', async (_event, payload) => {
+    if (!pool) return { ok: false, error: 'db_not_initialised' };
+    const cfg = await readWhatsappConfig();
+    if (!cfg || !cfg.whatsappEnabled) {
+      return { ok: false, error: 'not_configured' };
+    }
+
+    // Queue the send row first so we always have an audit trail.
+    let sendGuid = null;
+    try {
+      const [queued] = await pool.execute(
+        'call queue_whatsapp_send(?, ?, ?, ?, ?, ?, ?, ?);',
+        [
+          payload?.invoiceGuid ?? null,
+          payload?.customerGuid,
+          payload?.templateName,
+          payload?.templateLanguage ?? 'en',
+          payload?.templateVariables ? JSON.stringify(payload.templateVariables) : null,
+          payload?.attachmentUrl ?? null,
+          payload?.phoneNumber,
+          payload?.sentByUserId ?? null,
+        ],
+      );
+      const first = Array.isArray(queued) && queued[0] && queued[0][0];
+      sendGuid = first ? first.sendGuid : null;
+    } catch (err) {
+      logger.error('[whatsapp:send] queue failed:', err);
+      return { ok: false, error: err.message };
+    }
+
+    const apiResult = await whatsappService.sendTemplateMessage({
+      phoneNumberId: cfg.whatsappPhoneNumberId,
+      apiToken:      cfg.whatsappApiToken,
+      to:            payload?.phoneNumber,
+      templateName:  payload?.templateName,
+      language:      payload?.templateLanguage ?? 'en',
+      components:    payload?.components,
+    });
+
+    if (sendGuid) {
+      try {
+        await pool.execute(
+          'call update_whatsapp_status(?, ?, ?, ?, ?);',
+          [
+            sendGuid,
+            apiResult.ok ? 'sent' : 'failed',
+            apiResult.messageId ?? null,
+            apiResult.ok ? null : (apiResult.error || 'unknown'),
+            payload?.sentByUserId ?? null,
+          ],
+        );
+      } catch (err) {
+        logger.error('[whatsapp:send] update_whatsapp_status failed:', err);
+      }
+    }
+
+    return apiResult.ok
+      ? { ok: true, sendGuid, messageId: apiResult.messageId }
+      : { ok: false, sendGuid, error: apiResult.error };
+  });
+
+  ipcMain.handle('whatsapp:updateStatus', async (_event, payload, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute(
+        'call update_whatsapp_status(?, ?, ?, ?, ?);',
+        [
+          payload?.sendGuid,
+          payload?.newStatus,
+          payload?.metaMessageId ?? null,
+          payload?.errorMessage ?? null,
+          payload?.actorUserId ?? null,
+        ],
+      );
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  ipcMain.handle('whatsapp:getLog', async (_event, args, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute(
+        'call get_whatsapp_send_log(?, ?, ?, ?, ?, ?);',
+        [
+          args?.customerGuid ?? null,
+          args?.status ?? null,
+          args?.dateFrom ?? null,
+          args?.dateTo ?? null,
+          args?.pageSize ?? 20,
+          args?.page ?? 1,
+        ],
+      );
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  ipcMain.handle('whatsapp:getByCustomer', async (_event, customerGuid, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute(
+        'call get_whatsapp_sends_by_customer(?);', [customerGuid]);
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  ipcMain.handle('whatsapp:getByInvoice', async (_event, invoiceGuid, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute(
+        'call get_whatsapp_sends_by_invoice(?);', [invoiceGuid]);
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  // -- IBJA (rate scraper + snapshot log) ----------------------------------
+  ipcMain.handle('ibja:fetchNow', async () => {
+    return runIbjaFetchAndSave();
+  });
+
+  ipcMain.handle('ibja:getSnapshots', async (_event, args, options) => {
+    return runWithTimeout(async () => {
+      const [r] = await pool.execute(
+        'call get_ibja_snapshots(?, ?, ?, ?, ?);',
+        [
+          args?.status ?? null,
+          args?.dateFrom ?? null,
+          args?.dateTo ?? null,
+          args?.pageSize ?? 20,
+          args?.page ?? 1,
+        ],
+      );
+      return r;
+    }, options?.timeoutMs);
+  });
+
+  ipcMain.handle('ibja:getScheduleInfo', () => ibjaScheduleInfo());
+
   // -- Store -----------------------------------------------------------------
   ipcMain.handle('store:get',    (_event, key)        => store.get(key));
   ipcMain.handle('store:set',    (_event, key, value) => { store.set(key, value); return true; });
@@ -839,11 +1095,150 @@ function registerIpcHandlers() {
 }
 
 // ---------------------------------------------------------------------------
+// IBJA scheduler (twice-daily 10:30 IST + 16:30 IST). We roll our own with
+// setTimeout instead of pulling in node-cron; the whole scheduler is <40
+// lines and node-cron would be a new npm dependency (out of scope).
+// ---------------------------------------------------------------------------
+const IST_OFFSET_MIN = 330;
+const IBJA_AM_HOUR_IST = 10;
+const IBJA_AM_MIN_IST  = 30;
+const IBJA_PM_HOUR_IST = 16;
+const IBJA_PM_MIN_IST  = 30;
+
+let ibjaTimer = null;
+let ibjaNextFireAt = null;
+
+function nextIstFire(hourIst, minIst, from = new Date()) {
+  // Compute the next `hh:mm IST` firing instant as a UTC Date. IST = UTC+5:30.
+  const targetIstMinutes = hourIst * 60 + minIst;
+  const nowUtcMinutes = from.getUTCHours() * 60 + from.getUTCMinutes();
+  const nowIstMinutes = (nowUtcMinutes + IST_OFFSET_MIN) % (24 * 60);
+
+  const start = new Date(Date.UTC(
+    from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate(),
+    0, 0, 0, 0,
+  ));
+  let msFromMidnightUtc = (targetIstMinutes - IST_OFFSET_MIN) * 60_000;
+  while (msFromMidnightUtc < 0) msFromMidnightUtc += 24 * 60 * 60_000;
+
+  let fire = new Date(start.getTime() + msFromMidnightUtc);
+  if (fire.getTime() <= from.getTime() || nowIstMinutes >= targetIstMinutes + 1) {
+    fire = new Date(fire.getTime() + 24 * 60 * 60_000);
+  }
+  return fire;
+}
+
+function ibjaScheduleInfo(now = new Date()) {
+  return {
+    scheduled: !!ibjaTimer,
+    nextFireAt: ibjaNextFireAt ? ibjaNextFireAt.toISOString() : null,
+    nextAmAt: nextIstFire(IBJA_AM_HOUR_IST, IBJA_AM_MIN_IST, now).toISOString(),
+    nextPmAt: nextIstFire(IBJA_PM_HOUR_IST, IBJA_PM_MIN_IST, now).toISOString(),
+  };
+}
+
+async function runIbjaFetchAndSave() {
+  if (!pool) return { ok: false, error: 'db_not_initialised' };
+  const now = new Date();
+  const result = await ibjaService.fetchIbjaRates(now);
+
+  const istTotal = now.getUTCHours() * 60 + now.getUTCMinutes() + IST_OFFSET_MIN;
+  const istHour  = Math.floor((istTotal % (24 * 60)) / 60);
+  const session  = result.session || (istHour < 14 ? 'AM' : 'PM');
+
+  try {
+    if (result.ok) {
+      await pool.execute(
+        'call save_ibja_snapshot(?, ?, ?, ?);',
+        [session, result.rawResponse ?? '', 'success', null],
+      );
+      const purities = result.purities || {};
+      const nowDate = now.toISOString().slice(0, 10);
+      const ratesArray = [];
+      for (const [key, val] of Object.entries(purities)) {
+        if (key === 'silver_999') ratesArray.push({ purityCode: 'S999', ratePerGram: val });
+        else if (['999', '995', '916', '750', '585'].includes(key)) {
+          ratesArray.push({ purityCode: key, ratePerGram: val });
+        }
+      }
+      if (ratesArray.length) {
+        try {
+          await pool.execute(
+            'call save_metal_rates(?, ?, ?, ?, ?);',
+            [nowDate, session, 'ibja', null, JSON.stringify(ratesArray)],
+          );
+        } catch (rateErr) {
+          logger.error('[ibja] save_metal_rates failed:', rateErr);
+        }
+      }
+      return { ok: true, session, purities };
+    }
+    await pool.execute(
+      'call save_ibja_snapshot(?, ?, ?, ?);',
+      [
+        session,
+        result.rawResponse ?? '',
+        result.reason || 'network_error',
+        result.error || null,
+      ],
+    );
+    return { ok: false, error: result.error || result.reason };
+  } catch (err) {
+    logger.error('[ibja] run failed:', err);
+    return { ok: false, error: err.message };
+  }
+}
+
+async function scheduleNextIbjaFire() {
+  if (!pool) return;
+  let enabled = false;
+  try {
+    const [rows] = await pool.query(
+      'SELECT ibjaAutoFetchEnabled FROM shopsettings WHERE id = 1;'
+    );
+    enabled = !!(rows && rows[0] && rows[0].ibjaAutoFetchEnabled);
+  } catch (err) {
+    logger.warn('[ibja] read shopsettings failed:', err.message);
+  }
+  if (!enabled) {
+    ibjaNextFireAt = null;
+    if (ibjaTimer) { clearTimeout(ibjaTimer); ibjaTimer = null; }
+    return;
+  }
+
+  const now = new Date();
+  const am = nextIstFire(IBJA_AM_HOUR_IST, IBJA_AM_MIN_IST, now);
+  const pm = nextIstFire(IBJA_PM_HOUR_IST, IBJA_PM_MIN_IST, now);
+  ibjaNextFireAt = am.getTime() < pm.getTime() ? am : pm;
+
+  const delayMs = Math.max(0, ibjaNextFireAt.getTime() - now.getTime());
+  if (ibjaTimer) clearTimeout(ibjaTimer);
+  ibjaTimer = setTimeout(async () => {
+    try {
+      await runIbjaFetchAndSave();
+    } catch (err) {
+      logger.error('[ibja] scheduled fire failed:', err);
+    }
+    scheduleNextIbjaFire();
+  }, delayMs);
+  logger.info(`[ibja] next fetch at ${ibjaNextFireAt.toISOString()}`);
+}
+
+// ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
 app.whenReady().then(() => {
   registerIpcHandlers();
   createWindow();
+  // The scheduler self-defers if the pool is not up yet — main window opens
+  // instantly, then the renderer calls db:initialize which flips pool to
+  // truthy. We poll cheaply until the pool is live, then schedule.
+  const bootPoll = setInterval(() => {
+    if (pool) {
+      clearInterval(bootPoll);
+      scheduleNextIbjaFire().catch((err) => logger.warn('[ibja] initial schedule failed:', err.message));
+    }
+  }, 2_000);
 });
 
 app.on('window-all-closed', async () => {

@@ -75,6 +75,31 @@ contextBridge.exposeInMainWorld('electronAPI', {
     delete:  (payload) => ipcRenderer.invoke('backup:delete',  payload),
   },
 
+  repair: {
+    create:         (payload, options)      => ipcRenderer.invoke('repair:create',         payload, options),
+    updateStatus:   (payload, options)      => ipcRenderer.invoke('repair:updateStatus',   payload, options),
+    settle:         (payload, options)      => ipcRenderer.invoke('repair:settle',         payload, options),
+    linkToKarigar:  (payload, options)      => ipcRenderer.invoke('repair:linkToKarigar',  payload, options),
+    getDetails:     (ticketGuid, options)   => ipcRenderer.invoke('repair:getDetails',     ticketGuid, options),
+    getAll:         (args, options)         => ipcRenderer.invoke('repair:getAll',         args, options),
+    getByCustomer:  (customerGuid, options) => ipcRenderer.invoke('repair:getByCustomer',  customerGuid, options),
+    delete:         (payload, options)      => ipcRenderer.invoke('repair:delete',         payload, options),
+  },
+
+  whatsapp: {
+    send:           (payload)               => ipcRenderer.invoke('whatsapp:send',          payload),
+    updateStatus:   (payload, options)      => ipcRenderer.invoke('whatsapp:updateStatus',  payload, options),
+    getLog:         (args, options)         => ipcRenderer.invoke('whatsapp:getLog',        args, options),
+    getByCustomer:  (customerGuid, options) => ipcRenderer.invoke('whatsapp:getByCustomer', customerGuid, options),
+    getByInvoice:   (invoiceGuid, options)  => ipcRenderer.invoke('whatsapp:getByInvoice',  invoiceGuid, options),
+  },
+
+  ibja: {
+    fetchNow:        ()                  => ipcRenderer.invoke('ibja:fetchNow'),
+    getSnapshots:    (args, options)     => ipcRenderer.invoke('ibja:getSnapshots', args, options),
+    getScheduleInfo: ()                  => ipcRenderer.invoke('ibja:getScheduleInfo'),
+  },
+
   dialog: {
     chooseDirectory: (payload) => ipcRenderer.invoke('dialog:chooseDirectory', payload),
   },
