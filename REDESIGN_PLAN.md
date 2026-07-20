@@ -1354,7 +1354,85 @@ Folded into 12.4. See "RBAC coverage summary" above.
 
 ### 14.1 Workstream P — status
 
-_TBD_
+**Landed 2026-07-20 on parent branch `integration/modernization-2026-07-17`.** Phase 3 backend foundation: repair-ticket module + WhatsApp send-log + IBJA rate scraper + snapshot audit + Angular i18n build config. Client submodule untouched except for the three empty XLIFF placeholders under `client/locale/` (T will populate).
+
+**Tables added / extended.**
+
+- `Scripts/Tables/RepairTickets.sql` — new. Columns per brief plus soft-delete + FK cascades. Unique keys on `ticketGuid` and `ticketNumber`.
+- `Scripts/Tables/WhatsAppSendLog.sql` — new. Meta Cloud API surface: template name/language, JSON variables, phone number, `metaMessageId`, status ENUM(`queued/sent/delivered/read/failed`), per-transition timestamps (queuedAt / sentAt / deliveredAt / readAt), plus errorMessage for failed sends.
+- `Scripts/Tables/IbjaRateSnapshots.sql` — new. Raw HTML response (TEXT), parsed rates JSON, session AM/PM, status ENUM(`success/parse_failure/network_error`). Retention TBD; not part of this workstream.
+- `Scripts/Tables/ShopSettings.sql` — extended with `repairPrefix VARCHAR(32) DEFAULT 'REP/'`, `currentRepairCounter INT DEFAULT 1`, `whatsappPhoneNumberId VARCHAR(64)`, `whatsappBusinessAccountId VARCHAR(64)`, `whatsappApiToken VARCHAR(512)`, `whatsappEnabled TINYINT DEFAULT 0`, `ibjaAutoFetchEnabled TINYINT DEFAULT 0`.
+- `docker/init/01-init-db.sh` — TABLES array extended with the three new tables after karigar tables (FK-safe order).
+
+**Stored procedures added (15 new, grouped by module):**
+
+- **Repair** (8, new folder `Scripts/Stored-Procedures/Repair/`): `create_repair_ticket` (auto-formats ticketNumber from `shopsettings.repairPrefix` + `currentRepairCounter`, increments counter atomically inside the same transaction), `update_repair_status` (validates `received→in_progress→ready→delivered`; any→declined; requires `actualCharge`+`paymentMode` when moving to `delivered`), `settle_repair_ticket` (convenience wrapper — only from `ready`), `link_repair_to_karigar`, `get_repair_ticket_details` (customer + karigar joins), `get_all_repair_tickets` (paginated; filters on status / customer search / date range), `get_repair_tickets_by_customer`, `delete_repair_ticket` (soft delete, RBAC-guarded: `employee` gets `SIGNAL 45000 Forbidden: canDeleteRepair`).
+- **WhatsApp** (5, new folder): `queue_whatsapp_send` (inserts `queued` row, returns sendGuid), `update_whatsapp_status` (validates enum; stamps `sentAt`/`deliveredAt`/`readAt` on first transition to each), `get_whatsapp_send_log` (paginated; filters customer/status/date), `get_whatsapp_sends_by_customer`, `get_whatsapp_sends_by_invoice`.
+- **IBJA** (2, new folder): `save_ibja_snapshot` (validates session ∈ {AM,PM} and status enum), `get_ibja_snapshots` (paginated; truncates rawResponse to 500 chars in the preview column).
+
+**Electron main modules.**
+
+- **`src-electron/whatsapp.js`** — exports `sendTemplateMessage({ phoneNumberId, apiToken, to, templateName, language, components })`. POSTs to `https://graph.facebook.com/v20.0/{phoneNumberId}/messages` with Bearer auth. Returns `{ ok:true, messageId }` on success, `{ ok:false, error:'not_configured' }` when either credential is missing, or `{ ok:false, error:<msg> }` on network / HTTP error. Uses Node 20 built-in `fetch`; no `node-fetch` dependency added.
+- **`src-electron/ibja.js`** — exports `fetchIbjaRates()`. Scrapes `https://ibjarates.com/` with a browser-like User-Agent; three progressively-looser regex shapes extract `999/995/916/750/585/silver_999` rates. Session inferred from IST clock (< 14:00 = AM). Missing 999 or 916 = parse failure; response HTML is sliced to 5000 chars and returned for diagnostic snapshotting either way.
+- **Cron in `src-electron/main.js`** — rolled a small setTimeout scheduler (no `node-cron`). Twice-daily fires at 10:30 IST + 16:30 IST. Reads `shopsettings.ibjaAutoFetchEnabled` on every reschedule so the toggle is honoured without a restart. Boot behaviour: waits for the DB pool to be up (polls every 2s), then calls `scheduleNextIbjaFire`; on fire, calls `ibja.fetchRates`, `save_ibja_snapshot`, and for successful fetches iterates purities into `save_metal_rates` with `source='ibja'`. On failure, still records the snapshot with the error status. Reschedules after every fire.
+
+**IPC channels added.** All on `window.electronAPI.*`, `contextIsolation:true`, `nodeIntegration:false` preserved.
+
+- `repair.create`, `repair.updateStatus`, `repair.settle`, `repair.linkToKarigar`, `repair.getDetails`, `repair.getAll`, `repair.getByCustomer`, `repair.delete`.
+- `whatsapp.send` (main-process orchestrator: reads `shopsettings.whatsappEnabled`+API config, queues the send-log row, calls `whatsappService.sendTemplateMessage`, then flips the row to `sent`/`failed` via `update_whatsapp_status`), `whatsapp.updateStatus`, `whatsapp.getLog`, `whatsapp.getByCustomer`, `whatsapp.getByInvoice`.
+- `ibja.fetchNow` (manual trigger — runs the same path as the scheduler), `ibja.getSnapshots`, `ibja.getScheduleInfo` (returns `{ scheduled, nextFireAt, nextAmAt, nextPmAt }` for the Settings panel).
+
+**TypeScript service layer (Angular / renderer-side, routes through `DatabaseService.execute`, K-pattern preserved):**
+
+- `Backend/Repair/db-repair.service.ts` — mirrors all 8 SPs.
+- `Backend/WhatsApp/db-whatsapp.service.ts` — DB SPs only (`updateStatus`, `getLog`, `getByCustomer`, `getByInvoice`). Actual sending goes through the IPC orchestrator `window.electronAPI.whatsapp.send`, not the service.
+- `Backend/Ibja/db-ibja.service.ts` — `saveSnapshot`, `getSnapshots`. Same pattern: fetch orchestration is main-process-only via IPC.
+- `Backend/Shared/interfaces/repair.ts`, `whatsapp.ts`, `ibja.ts` — payload + view interfaces (`RepairTicket`, `RepairStatus`, `CreateRepairTicketPayload`, `UpdateRepairStatusPayload`, `SettleRepairTicketPayload`, `LinkRepairToKarigarPayload`, `GetAllRepairTicketsArgs`, `WhatsappSendLogRow`, `WhatsappStatus`, `SendWhatsappPayload`, `UpdateWhatsappStatusPayload`, `GetWhatsappLogArgs`, `IbjaSnapshot`, `IbjaSession`, `IbjaSnapshotStatus`, `IbjaFetchResult`, `IbjaScheduleInfo`, `GetIbjaSnapshotsArgs`).
+
+**Angular i18n build config.**
+
+- `package.json` — added `@angular/localize` at `^19.2.0` (npm resolved to `19.2.25` under `--legacy-peer-deps` because `@angular/compiler` is pinned at that exact patch by the CLI; behaviour identical, warning is a peer-range quirk in Angular 19's own package graph).
+- `angular.json` — added top-level `i18n` block on the `Frontend` project with `sourceLocale: en-IN` and locale map for `hi/gu/mr` pointing at `client/locale/messages.<lang>.xlf`. Added three new build configurations `hi`, `gu`, `mr` (each with `localize: ['<lang>']` and per-locale `outputPath: dist/<lang>`). `development` + `production` remain English.
+- `client/locale/messages.hi.xlf`, `.gu.xlf`, `.mr.xlf` — XLIFF 1.2 skeletons with correct `source-language="en-IN"` + `target-language="<lang>"` and empty `<body>`. T will run `ng extract-i18n` to populate.
+
+**Seed extensions (`Scripts/Seed/seed-data.sql`, appended at tail, idempotent for fresh rebuild):**
+
+- `ShopSettings` — patched via `UPDATE ... WHERE id = 1` to set `repairPrefix='RAD/REP/2026/'`, `currentRepairCounter=9`, all WhatsApp fields NULL/0, `ibjaAutoFetchEnabled=0`. The seeded ticket numbers cover 00001–00008 so the counter starts at 9.
+- 8 repair tickets across last 45 days: 3 delivered, 1 ready, 2 in_progress, 1 received, 1 declined. Two are linked to karigars (Ramesh Sonar + Suresh Karigar); one (RAD/REP/2026/00004) is linked to Nitin Chhipa on a diamond re-set.
+- 4 WhatsApp send-log rows against seeded invoices 1–4: 1 delivered (customer 1), 1 read (customer 2), 1 failed with error (customer 3), 1 queued (customer 4).
+- 3 IBJA snapshots: 2 success (AM + PM yesterday with representative rate blobs), 1 parse_failure (portal-maintenance stub 12 hours ago).
+
+**Verification.**
+
+- `docker compose down -v && docker compose up -d --build` — clean end-to-end. First rebuild caught a MySQL 8 reserved-word issue in the auditlog INSERT (`before`, `after` need backticks); fixed in `update_repair_status.sql` + `settle_repair_ticket.sql` and re-verified green. Logs green apart from the pre-existing `caching_sha2_password` + `CA certificate self-signed` warnings.
+- Manual SP smoke tests via `docker exec ... mysql`:
+  - `CALL create_repair_ticket(<cGuid>, 1, 'Chain broken', NULL, 4.5, 800, '2026-08-15', 'Note', NULL);` → returned `RAD/REP/2026/00009`.
+  - `CALL update_repair_status(<guid>, 'in_progress', 1, NULL, NULL, NULL);` → status flipped; auditlog row written.
+  - `CALL update_repair_status(<guid>, 'ready', 1, NULL, NULL, NULL);` → ready.
+  - `CALL settle_repair_ticket(<guid>, 800, 'cash', NULL, 1);` → delivered, deliveredAt stamped.
+  - `CALL update_repair_status(<received-ticket-guid>, 'delivered', 1, NULL, NULL, NULL);` → **fails** with `SIGNAL 45000 update_repair_status: invalid transition` (received→delivered not allowed).
+  - `CALL delete_repair_ticket(<guid>, 3);` → **fails** with `SIGNAL 45000 Forbidden: canDeleteRepair` (uid=3 is a cashier/employee).
+  - `CALL link_repair_to_karigar(<guid>, <kGuid>, NULL, 1);` → linked.
+  - `CALL get_all_repair_tickets('ready', NULL, NULL, NULL, 10, 1);` → returns 1 seed row (RAD/REP/2026/00004) + totalRecords.
+  - `CALL queue_whatsapp_send(<invGuid>, <cGuid>, 'invoice_ready', 'en', '["Ravi","RAD/2026/00042","18500"]', NULL, '+919812345678', 1);` → sendGuid returned.
+  - `CALL update_whatsapp_status(<sGuid>, 'sent', 'wamid.TEST123', NULL, 1);` → status flipped, sentAt stamped.
+  - `CALL save_ibja_snapshot('AM', '<html>test</html>', 'success', NULL);` → snapshotGuid returned.
+  - `CALL get_whatsapp_send_log(NULL, NULL, NULL, NULL, 5, 1);` → 5 rows (4 seed + 1 test) + totalRecords.
+  - `CALL get_ibja_snapshots(NULL, NULL, NULL, 5, 1);` → 4 rows (3 seed + 1 test) + totalRecords.
+- `node -e "require('./src-electron/whatsapp.js')"` — loads clean, exports `sendTemplateMessage`.
+- `node -e "require('./src-electron/ibja.js')"` — loads clean, exports `fetchIbjaRates`, `currentIstSession`, `extractRates`. Parser unit-tested against a hand-rolled HTML fixture (999/916/750/585/silver_999 all round-tripped).
+- `node --check src-electron/main.js` + `preload.js` — both clean.
+- `npx ng build --configuration=development` — PASS. Only the pre-existing `NG8107` optional-chain style warnings from L's saving-schemes templates surface, all pre-dating this workstream.
+- `npx ng test --watch=false --browsers=ChromeHeadless` — **32/32 SUCCESS**. (Suite count grew from 19 to 32 during K/L/M/N/O; nothing this workstream should have broken.)
+
+**Deferred / documented, not blocking:**
+
+1. **WhatsApp API token encryption at rest.** `shopsettings.whatsappApiToken` is VARCHAR(512) plaintext. Backup already encrypts the mysqldump end-to-end, but a stolen `mysqld` process dump would expose the token. Future: reuse `backup.js`'s AES-256-GCM helper to seal the token with the shop's master passphrase, or move the token to `electron-store` under DPAPI (Windows) / Keychain (macOS).
+2. **IBJA parser resilience.** The three regex shapes cover today's markup and one plausible JSON-blob fallback, but ibjarates.com is not versioned. A markup change silently degrades every AM/PM fetch to `parse_failure`. Two options: (a) a smoke test that hits a captured HTML fixture on every release, or (b) an "IBJA parser regression" harness that stores the last 30 raw responses and diffs new markup against the known-good template. Neither is in scope for this workstream — S will surface parse failures loudly in Settings.
+3. **Cron persistence across restarts.** The setTimeout scheduler is in-process only. If Electron is closed at 10:29 IST, the AM fetch is skipped. Acceptable for a shop-counter app that runs during business hours; not acceptable for a headless service. Future: on boot, check whether we're inside a fire window (± 30 min) and back-fill the missed fetch by looking at the latest snapshot's fetchedAt.
+4. **`mysqldump` bundling.** Still deferred from K's list — Windows users still need MySQL client tools on PATH. This workstream doesn't move the needle; called out here so the P3 deferred set is complete in one place.
+5. **`@angular/localize` peer range.** npm resolved to `19.2.25` (not `19.2.0`) because `@angular/compiler`'s peer range on `@angular/localize` is exact-match. `--legacy-peer-deps` was required to install. Harmless — every `@angular/*` package in this project already sits at 19.2.25 under the hood.
+6. **`whatsapp.send` idempotency.** No retry / dedupe. A double-tap in the UI would produce two `queued` rows. S should implement a client-side debounce; server-side idempotency would need a `clientDedupeToken` column.
 
 ### 14.2 Workstream Q — status
 
@@ -1442,7 +1520,75 @@ _TBD_
 
 ### 14.3 Workstream R — status
 
-_TBD_
+**Closed 2026-07-20.** CSV migration IN + OUT + Tally XML export shipped end-to-end. Five commits on submodule branch `redesign/ui-modernization`:
+
+1. `feat(shared/utils): csv-import parser + tally-xml builder + specs`
+2. `feat(migration): MigrationService with import/export for customers/products/rates`
+3. `feat(settings): Migration tab wired to import + export flows`
+4. `feat(customers,inventory): Export CSV toolbar buttons`
+5. `feat(reports): Tally XML export on day-book and sales-register`
+
+**Files added (submodule):**
+
+- `client/app/shared/utils/csv-import.ts` — hand-rolled RFC-4180 CSV parser (CRLF/LF/CR aware, `""` quote-escape, header detection, `parseCSVFile` async helper over `File.text()`).
+- `client/app/shared/utils/csv-import.spec.ts` — 5 specs (basic, quoted commas, escaped quotes, CRLF, empty cells).
+- `client/app/shared/utils/tally-xml.ts` — `escapeXml`, `buildDayBookXml`, `buildSalesRegisterXml`, `downloadXml`.
+- `client/app/shared/utils/tally-xml.spec.ts` — 4 specs (escape correctness, envelope root, voucher count, currency formatting).
+- `client/app/shared/services/Migration/migration.service.ts` — Angular service exposing `previewCustomerCsv` / `importCustomers`, `previewProductCsv` / `importProducts`, `previewRatesCsv` / `importRates`, plus `triggerExportCustomers` / `triggerExportProducts` / `triggerExportRates`. Also exports `normalisePurityCode` and `normaliseMakingMode` helpers.
+
+**Files touched (submodule):**
+
+- `client/app/modules/settings/components/settings-page/settings-page.component.ts,html` — added Migration tab (positioned before Database), deep-linkable via `?tab=migration` query param.
+- `client/app/modules/customers/components/customers-page/customers-page.component.ts,html` — added "Import CSV" + "Export CSV" ghost buttons beside the existing "Add customer" primary button.
+- `client/app/modules/inventory/components/available-products/available-products.component.ts,html` — same two ghost buttons beside "Add product".
+- `client/app/modules/reports/components/day-book/day-book.component.ts,html` — "Tally XML" ghost button + italic caption near existing CSV export button.
+- `client/app/modules/reports/components/sales-register/sales-register.component.ts,html` — same for sales register.
+- `client/styles.scss` — Workstream R recipe block appended at the very bottom.
+
+**Utilities added.** `parseCSV` / `parseCSVFile` (~120 LOC streaming state machine, no runtime dependency). `escapeXml` / `buildDayBookXml` / `buildSalesRegisterXml` / `downloadXml`. `normalisePurityCode` and `normaliseMakingMode` used by the product importer to accept messy source columns.
+
+**Importer flows.**
+
+| Entity     | Target fields                                                                                                                                            | Duplicate key                   | Persistence route                              |
+|------------|----------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------|------------------------------------------------|
+| Customers  | firstName, lastName, phoneNumber, email, gender, dateOfBirth, address, city, state, stateCode, gstin, pan, remarks                                       | phone (digits-only match)       | `CustomerDataService.addCustomer` / `.updateCustomerDetails` |
+| Products   | sku, huid, purityCode, description, gross/net/stone wt, stone charges, makingMode, makingValue, wastage%, costPrice (admin only), tagPrice, hsn, category ids | SKU (upper-cased trim)          | `AvailableProductsService.addProduct` / `.updateProductDetails` |
+| Metal rates| effectiveDate, session (AM/PM), purityCode, ratePerGram                                                                                                  | (effectiveDate, session, purity)| `MetalRatesService.save` (batched per (date, session)) |
+
+Purity normaliser accepts `22K` / `22K Gold` / `916` / `gold-22k` / `22kt` → `916`; `18K...` → `750`; `14K...` → `585`; `24K...` / `9999` → `999`. Making-mode normaliser accepts `$` / `flat` / `F` / `fixed` → `flat`; `$/g` / `perGram` / `PG` / `₹/g` → `perGram`; `%` / `percent` / `P` / `pct` → `percent`.
+
+Duplicate strategy: skip / update / abort (radio button per entity, defaults to skip). Failed rows are collected with an `_error` column and downloadable as CSV. Preview shows first 20 rows; rows flagged with issues are tinted red.
+
+**Exporter buttons added.**
+
+- Settings > Migration tab — three quick-export buttons at the top for customers / products / rates.
+- Customers list toolbar — "Export CSV" ghost button.
+- Inventory list toolbar — "Export CSV" ghost button (omits `costPrice` column for non-admin per `PermissionsService.costsVisible()`).
+- Day book — "Export CSV" (existing) + "Tally XML" (new).
+- Sales register — "Export CSV" (existing) + "Tally XML" (new).
+
+**Tally XML shape.**
+
+- Day book emits one `<VOUCHER VCHTYPE="Receipt">` per non-zero payment bucket per day. Ledger mapping — Cash → `Cash`, Cheque → `Bank Account`, UPI → `UPI Suspense`, Card → `Card Suspense`, Online → `Online Suspense`, counter-ledger `Sundry Debtors`.
+- Sales register emits one `<VOUCHER VCHTYPE="Sales">` per invoice. Party ledger = `customerName` (or `Cash Sales` fallback). Sales ledger = `Sales - Jewellery`. GST split emitted as separate `<ALLLEDGERENTRIES.LIST>` entries — `CGST @ 1.5%` / `SGST @ 1.5%` / `IGST @ 3%` — only when the corresponding amount is non-zero. Line items rendered as a single `<ALLINVENTORYENTRIES.LIST>` per HSN row with `<ACCOUNTINGALLOCATIONS.LIST>` nested.
+- Both files wrap in the standard Tally import envelope: `<?xml version="1.0" encoding="UTF-8"?><ENVELOPE><HEADER><TALLYREQUEST>Import Data</TALLYREQUEST></HEADER><BODY><IMPORTDATA><REQUESTDESC><REPORTNAME>Vouchers</REPORTNAME></REQUESTDESC><REQUESTDATA>...</REQUESTDATA></IMPORTDATA></BODY></ENVELOPE>`. Filenames: `tally-daybook-<from>-<to>.xml`, `tally-sales-<from>-<to>.xml`.
+- A caption below the buttons reminds the user: "Ready for import into Tally Prime via Ctrl+Alt+O — configure ledger names before first import."
+
+**Recipes** appended to `client/styles.scss` under `// Workstream R shared recipes (Migration IN/OUT + Tally XML export)`: `.import-section`, `.import-dropzone`, `.import-preview` / `.import-preview__head` / `.import-preview__scroll`, `.import-preview-table` (40px rows, sticky header), `.mapping-col` / `.mapping-col__source`, `.mapping-select` (compact 28px height), `.import-row--error`, `.import-strategy`, `.radio-inline`, `.import-progress` / `.import-progress__bar`, `.import-result` / `.import-result__row`, `.import-caption`, `.chip--success` / `.chip--danger` / `.chip--muted`, `.page-title__actions`.
+
+**Tests.** 32/32 pass (Q baseline of 23 + 9 new: 5 for `parseCSV`, 4 for tally-xml builders).
+
+**Verification.**
+
+- `ng build --configuration=development` — PASS in 11.7s, no compile errors.
+- `ng test --watch=false --browsers=ChromeHeadless` — 32/32 pass.
+
+**Deferred.**
+
+- Progress bar is a two-state stub (importing = 40 %, done = 100 %). A true per-row progress would need `queueMicrotask`-driven yielding or an IPC stream — not worth the churn for the realistic single-shop dataset ceiling (~5 000 rows).
+- Failed-rows CSV round-trip preserves the `_error` column that the importer treats as unmapped on re-upload; there is no scripted "reset and retry" affordance yet.
+- Tally ledger names are hard-coded. Configurable per-shop ledger overrides deferred to a future ShopSettings extension.
+- `npm start` live walk not driven inside this session (harness is headless-only); build + tests + template compile all pass so no regression is expected on the desktop shell.
 
 ### 14.4 Workstream S — status
 
