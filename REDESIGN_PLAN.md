@@ -1021,11 +1021,162 @@ Everything is idempotent for a fresh `docker compose down -v && docker compose u
 
 ### 12.2 Workstream L — status
 
-_TBD_
+**Landed 2026-07-20 on parent branch `integration/modernization-2026-07-17` (`src-electron/` + parent `package.json`) and submodule branch `redesign/ui-modernization` (all Angular UI).** Hardware-input surface (keyboard-wedge barcode scanner + `serialport` RS-232 weighing scale) and full old-gold-exchange cart line on top of K's SPs + IPC channels. Parent-repo submodule pointer not bumped (per rules).
+
+**Files touched — parent repo (`src-electron/` + root):**
+
+- `package.json` — new dependency `serialport@^12.0.0`. Installed cleanly (`node -e "require('serialport')"` returns a live `SerialPort` class). No other npm additions.
+- `src-electron/scale.js` (new) — factory that loads `serialport` behind a `try/catch`. Exposes `listPorts()`, `open(portPath, baudRate, onReading)`, `close()`, `getReading()`, `status()`, and a `parseFrame(raw)` helper. Frame parser: first numeric with up to 3 decimals; recognises embedded `ST`/`S`/`STABLE` and `US`/`UNSTABLE` flags for scales that emit them, else derives stability by matching two consecutive identical readings held for 500 ms. If `require('serialport')` throws (Windows box without the C++ redist), the module still loads and exports `available = false` so the renderer can gracefully disable the scale UI.
+- `src-electron/main.js` — `require('./scale')` + five new IPC handlers: `scale:getStatus`, `scale:listPorts`, `scale:open`, `scale:close`, `scale:getReading`. On `scale:open`, the callback bridges every parsed reading into `mainWindow.webContents.send('scale:reading', ...)` so the renderer can react to live frames without polling. `contextIsolation: true` and `nodeIntegration: false` preserved.
+- `src-electron/preload.js` — new `window.electronAPI.scale.*` surface (`getStatus`, `listPorts`, `open`, `close`, `getReading`, `onReading(cb)`). `onReading` returns an unsubscribe function for teardown, matching Electron's ipcRenderer add/remove-listener pattern.
+
+**Files touched — submodule (Angular tree, all under `client/`):**
+
+- `interfaces/OldGold/old-gold.ts` — new, mirrors `Backend/Shared/interfaces/old-gold.ts` (`OldGoldReceipt`, `SaveOldGoldReceiptPayload`).
+- `interfaces/Orders/orders-service-interface.ts` — extended `SaveOrderPayload` with `oldGoldReceiptGuid`, `savingSchemeGuid` (for M to use), `actorUserId`.
+- `shared/services/OldGold/old-gold.service.ts` — new, calls `window.electronAPI.oldGold.*` with `DbBridge` fallback (P1 pattern).
+- `shared/services/Hardware/scanner.service.ts` — new. Global `keydown` listener; 6+ char burst within a 50 ms rolling window terminated by Enter is emitted through `scan$` Subject + `lastScan` signal. Human-speed typing (>150 ms between keys) resets. Active-element gating: `capture-and-suppress` (not in editable → capture + preventDefault chars), `capture-passthrough` (input with `data-accept-scan="1"` → capture but let chars flow), `skip` (any other editable → do nothing). `enable()` / `disable()` + `emit(code)` for the settings simulate button.
+- `shared/services/Hardware/scale.service.ts` — new. Wraps `window.electronAPI.scale.*` with signals (`isConnected`, `currentReading`, `availablePorts`, `selectedPort`, `selectedBaud`, `available`, `connecting`, `lastError`). Selected port + baud persist to `localStorage['jsms.scale.config']`. Bootstraps on injection: pulls `getStatus()`, subscribes to `onReading`. Exposes `refreshPorts()`, `connect()`, `disconnect()`, `pollOnce()`.
+- `shared/services/cart.service.ts` — added `CartOldGoldState` interface + `oldGoldState` signal + `setOldGold` / `clearOldGold` + `OLD_GOLD_STORAGE_KEY` localStorage persistence. `emptyCart()` now clears old-gold too. (M concurrently added `CartSchemeState` in the same file; both blocks coexist cleanly.)
+- `shared/services/OldGold/old-gold.service.ts` — new (per above).
+- `modules/orders/services/order.service.ts` — `saveOrder` now sends the 24-param version of `save_order(...)` (added `oldGoldReceiptGuid`, `savingSchemeGuid`, `actorUserId` tail params to match K's SP).
+- `modules/orders/components/prepare-order/components/cart-builder/cart-builder.component.{ts,html,scss}`:
+  - Boot: `ScannerService.start()` + subscribe `scan$`.
+  - Product picker input gains `data-accept-scan="1"` — HID scans land as normal typing and the scan detector emits alongside.
+  - Scan handler: matches SKU or HUID (uppercase) against `allProducts`, adds if found (with success toast), else warning toast "No product found for <barcode>".
+  - Every line-item's Net-weight input gains `data-net-weight-key` + a `.scale-btn` icon button (lucide `scale`). Click or `Alt+W`: capture `ScaleService.currentReading()`, write into the field if stable, else toast "Scale not stable — wait for reading to settle". Disabled with tooltip "No scale connected — configure in Settings" when not connected.
+  - **Old-gold exchange panel** (new): collapsed by default, sits between line items and totals. Form fields: gross weight (with a `Weigh` icon button using scale), tested-purity dropdown (from `PuritiesService.getPurities()`), fineness override (0–1000), rate/g (auto-primed from the current-purity metal rate), deduction % (default 5), remarks. Credit computed live via signals (`gross × fineness/1000 × rate × (1 − deduction/100)`), displayed as `.money-lg` inside the panel. `Add to invoice` calls `OldGoldService.saveReceipt()` (with `actorUserId` from `storeService.get('authData').uid`), stores `receiptGuid` in `CartService.oldGoldState`, toasts success.
+  - **Totals panel** row `.totals-panel__row--stub` (M's stub row) still exists; my new row `--oldgold` renders once `oldGoldCreditAmount() > 0` — italic muted-red, clicking the label re-opens the panel, `×` icon calls `removeOldGold()` (client-side unlink only — K did not add an `unlink` SP, so the receipt row stays orphaned in the DB, flagged as follow-up).
+  - `computeCartTotals(...)` now feeds `oldGoldCreditAmount: this.oldGoldCreditAmount()` so grand total subtracts the credit and the tax base excludes it.
+- `modules/orders/components/prepare-order/components/create-invoice/create-invoice.component.{ts,html}`:
+  - Reads `CartService.oldGoldState()` for `oldGoldCreditAmount` + `oldGoldReceiptGuid`.
+  - Save payload now carries `oldGoldReceiptGuid` and `actorUserId`; `oldGoldCreditAmount` fed into the review-step totals recompute so the Review row matches the cart-builder.
+  - Review save-note copy updated: "An old-gold receipt is attached and will be linked to the invoice on save." shown when a receipt is pending.
+- `modules/customers/components/view-details/view-details.component.{ts,html}` (extend, not restyle) — adds an "Old-gold history" `.detail-section` below the Saving schemes section (which M added). Rows: date · gross wt · purity chip · invoice-number chip (or "Standalone") · credit amount in `.tabular-nums`. Click routes to `/orders/view-order-details/:invoiceGuid` when the receipt is invoice-linked; standalone receipts remain non-clickable. Empty state uses `lucideCoins`.
+- `modules/settings/components/settings-page/settings-page.component.{ts,html,scss}` — Print & Hardware tab: the two "Configure — Phase 2" stub cards are now real.
+  - **Barcode scanner card:** enable-toggle persists to `localStorage['jsms.scanner.cart.enabled']`; a `data-accept-scan="1"` test input; a "Simulate scan" button that calls `ScannerService.emit('TEST-BARCODE-<rand>')` so the same code path is exercised without hardware; a `.scan-badge` echoing the last capture.
+  - **Weighing scale card:** COM-port dropdown (populated via `scaleService.refreshPorts()`), baud-rate picker (`4800/9600/19200/38400`), Connect / Disconnect / Test reading buttons. Live display shows `<grams> g` in Instrument-Serif + a `.stable-indicator` (green "Stable" or amber "Waiting"). If `scale.available === false` (native module failed to load), a friendly notice takes over and the form is hidden — the HID keyboard-wedge fallback (`Alt+W`) is still documented in the note.
+- `styles.scss` — appended `// Workstream L shared recipes` block at the very bottom (after M's block). Adds: `.scan-badge` (pill echoing captured buffer, `--warn` variant), `.old-gold-panel` + `__head` + `__head-title` + `__badge` + `__body` + `__row` (responsive 3-col grid) + `__credit` + `__actions` + `__hint`, `.scale-btn` (32px square icon button with hover accent + disabled state), `.stable-indicator` + `--unstable` variant.
+
+**npm packages added:** `serialport@^12.0.0` (only). `@serialport/bindings-cpp` is a transitive prebuilt binding — installs cleanly on this Windows machine via `node-gyp-build` (no local MSBuild toolchain required). No HID libraries — HID keyboard-wedge scales are handled via the `Alt+W` focus-target pattern in the cart-builder (matches the plan spec).
+
+**Scanner service approach.** Global `document`-level `keydown` listener installed in `NgZone.runOutsideAngular` for CPU. On each key: (a) find active element and classify (`capture-and-suppress` for non-editable, `capture-passthrough` for scan-tagged inputs, `skip` for regular text inputs). (b) If gap since last key > 150 ms, buffer resets. (c) Buffer accumulates characters; on `Enter` with buffer ≥ 6 chars, emit and clear. `capture-and-suppress` also calls `preventDefault` on the intermediate keystrokes so they don't leak into arbitrary UI (buttons, sidebar); scan-tagged inputs let the chars land natively so their bound value stays in sync. `emit()` is public for the settings simulate button and any future test hooks.
+
+**Scale service approach.** `SerialPort` opened at `8N1`, delimiter `\r\n` (matches Essae / Contech default framing). Frame regex `/-?\d+(?:\.\d{1,3})?/` pulls the first numeric with up to 3 decimals. Stability: explicit `ST`/`S`/`STABLE`/`US`/`UNSTABLE` flags win; else two identical readings within 0.001 g held for 500 ms flips `stable = true`. Errors surface friendly: `ENOENT` on port open → "serialport module is not available on this machine" (only fires when the native module failed to load); mid-stream `port.error` events are logged, not thrown, so a wobbly cable doesn't crash the app. Renderer subscribes to a single `mainWindow.webContents.send('scale:reading', ...)` stream so multiple UI consumers (cart-builder + settings live-display) share the same live feed.
+
+**Old-gold cart flow.**
+- Form fields: gross weight, tested purity (dropdown from `PuritiesService.getPurities()`), free-text fineness override (0–1000), rate/g (auto-primed from current metal rate for the chosen purity, editable), deduction % (default `5`, editable), remarks (240 char).
+- Live compute: `signal`-derived `oldGoldCreditAmount` = `gross × fineness/1000 × rate × (1 − deduction/100)`, rounded to 2 dp. Feeds `computeCartTotals(...)` so the invoice totals + tax base recompute on every keystroke.
+- Save: calls `OldGoldService.saveReceipt(...)` (invoiceGuid = null at this stage) → receiptGuid stored in `CartService.oldGoldState` (persisted through `localStorage`). Cart-builder's totals row switches from empty to the italic muted-red credit line with `×` to remove.
+- Save invoice: `create-invoice.component.ts` sends `oldGoldReceiptGuid` + `oldGoldCreditAmount` on the `SaveOrderPayload`. K's `save_order(...)` links the receipt (`oldgoldreceipts.invoiceId`) and stamps `invoices.oldGoldCreditAmount`. `emptyCart()` clears the state so a subsequent cart doesn't accidentally re-link the receipt.
+
+**Customer view addition.** New "Old-gold history" `.detail-section` between the Saving schemes section (M) and the sidebar. Hydrates on `ngOnInit` via `OldGoldService.getReceiptsByCustomer(customerGuid)` (mirrors `getCustomerSchemes()` pattern). Rows: date · gross weight · purity chip · invoice-number chip (or "Standalone") · credit amount right-aligned. Invoice-linked rows are clickable → `/orders/view-order-details/:invoiceGuid`; standalone rows are non-clickable. Empty state uses `lucideCoins` at 32px.
+
+**Settings hardware panel state.** Fully wired. Barcode-scanner card has a real enable-toggle (persists to localStorage), a scan-test input tagged `data-accept-scan="1"`, a Simulate-scan button that exercises the same emit path as a real HID burst, and a live `.scan-badge` showing the last capture. Weighing-scale card lists COM ports via `SerialPort.list()`, opens/closes on demand, live-renders grams + stability indicator, and Test-reading grabs `getReading()` on demand. When `scale.available === false` the whole panel collapses to an install-guidance note but the `Alt+W` HID fallback keeps working.
+
+**Test + build result.**
+- `npm install serialport@^12.0.0` — PASS (25 packages added; prebuilt bindings resolved without a local build toolchain on this Windows box).
+- `node -e "require('./src-electron/scale.js').listPorts().then(...)"` — PASS: `available: true, ports: 0` (no scale attached to CI machine, but the load path is clean).
+- `npx tsc --noEmit -p tsconfig.json` (isolated) — **PASS for all L files.** No TS errors originate from my touched files.
+- `npx tsc --noEmit -p tsconfig.app.json` (full app) — **blocked by two errors in N's WIP** (see follow-up 5): a path typo in `client/app/shared/services/Auth/permissions.service.ts` and an `unknown` narrowing on `authData`. Isolated L files pass tsc cleanly.
+- `npx ng build --configuration=development` — **blocked by N's WIP** (same permissions.service.ts + missing `exportBackup`/`restoreBackup`/`loadBackups` visibility issues in `settings-page.component.html`). No errors from L files.
+- `npx ng test --watch=false --browsers=ChromeHeadless` — **blocked by same N WIP path bug** (karma fails module resolution before running any spec). L adds no new specs.
+- `docker compose down -v && docker compose up -d --build` — not re-run this pass; K's schema + SPs unchanged from `12.1`. Manual smoke of `save_old_gold_receipt` + `save_order` with `p_old_gold_receipt_guid` was performed at K's close and is documented in `12.1`.
+
+**Anything deferred (documented, not blocking):**
+
+1. **`oldGoldDeductionPercent` in `ShopSettings`.** The default 5% is a component-level constant (`DEFAULT_OLD_GOLD_DEDUCTION_PERCENT`). Follow-up: add a nullable `oldGoldDeductionPercent` column to `ShopSettings` (A/K scope) so the shop can preset its house rule. Corresponds to the "RCM vs Rule 32(5)" toggle noted in section 6 and section 12.1 follow-up 2.
+2. **`barcodeEnabled` in `ShopSettings`.** The scanner-on-cart preference is currently `localStorage['jsms.scanner.cart.enabled']`. For multi-machine installs it should move to a proper column. Follow-up: A/K adds `barcodeEnabled TINYINT` on `ShopSettings`.
+3. **Scale port + baud in `ShopSettings`.** Same story: today they're in `localStorage['jsms.scale.config']`. For a shop with multiple counters running the app, a shared `ShopSettings.scalePortPath` + `scaleBaudRate` would be right. Follow-up: A/K columns + wire through `shopSettings.save`.
+4. **`unlink` SP for old-gold.** K did not add one. The client `removeOldGold()` clears local cart state only — the DB row stays orphaned. Follow-up: K adds `unlink_old_gold_receipt(receiptGuid, actorUserId)` that null-out `invoiceId` + audit-logs; wire from the cart-builder `×` button.
+5. **`ng build` / `ng test` currently blocked by parallel N WIP** — `client/app/shared/services/Auth/permissions.service.ts` has one extra `../` on the `StoreService` import path (6 levels instead of the 5 that `AuthService` uses), and the settings page template references `exportBackup()` / `restoreBackup()` / `loadBackups()` that are private or removed from N's component class. Trivial to fix at reconciliation; not in L's territory. Confirmed via isolated `tsc --noEmit -p tsconfig.json` that no L file introduces errors.
+6. **HID keyboard-wedge scales.** Handled purely via the `Alt+W` focus-target pattern (matches the spec). No HID dependency added.
+7. **Native module install on Windows without build tools.** `serialport@12` ships prebuilt bindings via `@serialport/bindings-cpp` + `node-gyp-build`. On this CI machine (no local MSBuild) `npm install` succeeded and `node -e "require('serialport')"` loaded cleanly. If a pilot shop's machine still fails (locked-down antivirus, no prebuilt for their exact Node ABI), `scale.available` degrades gracefully and the settings card renders an install-guidance state instead of erroring.
+8. **Frame formats beyond first-numeric.** `parseFrame(raw)` currently pulls the first `-?\d+(?:\.\d{1,3})?` and heuristically flags stability. Essae, Contech, Wensar, and Kanchan all emit compatible variants. For scales that emit only bare weights with no stability flag, the two-consecutive-readings-500ms heuristic is what marks stable. A vendor-specific parser table is a follow-up if a pilot shop's scale needs it.
 
 ### 12.3 Workstream M — status
 
-_TBD_
+**Landed 2026-07-20 on submodule branch `redesign/ui-modernization`.** Two new P2 feature modules end-to-end on top of K's SPs + IPC bridges: saving schemes (Golden Harvest style monthly plans) and karigar (goldsmith) job-work register. Also: a saving-schemes section on the customer view, scheme-redemption row on the cart-builder, two rail entries, and the M shared-recipes block in `styles.scss`.
+
+**Files added — saving-schemes module.**
+
+- `client/app/modules/saving-schemes/saving-schemes-routing.config.ts` — `/saving-schemes` list + `:schemeGuid` detail.
+- `components/saving-schemes-page/*` — list page with filter chips (active/matured/redeemed/forfeited), customer + plan search, progress-bar column, status chips.
+- `components/saving-scheme-detail/*` — two-column detail (`.detail-shell`): customer + schedule + installments left, KPI mini-tiles right. Record-installment slide-in panel with amount / mode (cash/cheque/online) / ref / date / allow-multiple-this-month toggle. Forfeit is admin-only (`type === 'admin'` placeholder pending N's RBAC pass). Redeem routes to `/orders/prepare-order` with `schemeGuid` in query params + `localStorage.pendingSchemeGuid` so the cart-builder can pick it up.
+- `components/enroll-scheme-form/*` — overlay reused by both the list "New scheme" button and (indirectly) any future customer-view CTA. Customer picker (searchable dropdown against `get_all_customers`) or preset when routed with a customer.
+
+**Files added — karigar module.**
+
+- `client/app/modules/karigar/karigar-routing.config.ts` — `/karigar` landing (with Karigars + Job cards tabs), `karigars/:karigarGuid` detail, `jobs/:jobGuid` detail, `jobs/new` issue form.
+- `components/karigar-page/*` — landing with J's `.tabs-strip` recipe; Karigars tab renders a responsive card grid (initials avatar + phone + open-jobs count); Job cards tab renders a filterable status/karigar table with days-open + expected-return columns.
+- `components/karigar-form/*` — add/edit overlay (name / phone / address / remarks).
+- `components/karigar-detail/*` — two-column detail: date-ranged ledger with running totals footer (issued / received / owing / making accrued / payments / balance) + active-jobs list left, KPI tiles (gold owing / active jobs / settled this month) right.
+- `components/issue-job-page/*` — dedicated page with 4 form sections: party (karigar dropdown + issue date), issued gold (gross + purity), issued stones (dynamic add/remove rows), description + expected return. Scale-icon slot is stubbed disabled pending L's `ScaleService` integration.
+- `components/job-card-detail/*` — status-aware two-column detail. Left column has issued / received / settlement / linked-ledger blocks. Right column has wastage %, days-open, amount-due KPIs. "Receive job" and "Settle job" both open right-side slide-in panels (reusing I's payments-panel pattern with M's own layer copies).
+
+**Angular services + interfaces added.**
+
+- `client/app/shared/services/SavingSchemes/saving-schemes.service.ts` — `enroll`, `recordInstallment`, `redeem`, `forfeit`, `getDetails`, `getAll`, `getByCustomer`. IPC-bridge-preferred, DbBridge fallback.
+- `client/app/shared/services/Karigar/karigar.service.ts` — full CRUD + job lifecycle + ledger. Same pattern.
+- `client/app/interfaces/SavingSchemes/saving-scheme.ts` — mirrors `Backend/Shared/interfaces/saving-scheme.ts` from K's handoff (SavingScheme, SavingSchemeInstallment, all payload types, SchemePaymentMode). Also re-used by cart-builder + customer view.
+- `client/app/interfaces/Karigar/karigar.ts` — mirrors `Backend/Shared/interfaces/karigar.ts` (Karigar, KarigarJob, KarigarLedgerEntry, KarigarLedgerSummary, all payload types).
+
+**Customer view addition (H's screen — extension only, no restyle).**
+
+- `client/app/modules/customers/components/view-details/view-details.component.{ts,html}` — added `getCustomerSchemes()` calling `savingSchemes.getByCustomer(customerGuid)` on init; new "Saving schemes" section below "Order history" in the left column, styled as an `.order-list` variant using status chips. Empty state renders a small muted "No saving schemes for this customer." Row click routes to `/saving-schemes/:schemeGuid`. Icon: `lucidePiggyBank`.
+
+**Cart-builder scheme redemption (I's screen — extension only, no restyle).**
+
+- `client/app/modules/orders/components/prepare-order/components/cart-builder/cart-builder.component.{ts,html,scss}` — imported `SavingSchemesService` + `CartSchemeState`. New signals: `appliedScheme`, `schemePickerOpen`, `eligibleSchemes`. On init, restores any persisted scheme from `CartService.schemeState()` + fetches eligible schemes (`status IN ('active','matured')`) for the selected customer. Added a totals-panel row between "Old-gold credit" and "Discount": either an "Apply scheme →" link (opens a small overlay with the eligible schemes and their projected corpus) or the applied scheme's plan name + corpus subtracted with an "×" to unapply. Additionally, a "Payable after scheme" muted row appears below the grand total (informational only; SP handles the actual redemption during save_order). New scheme picker overlay is scoped to cart-builder.scss and does not touch existing rules.
+- `client/app/shared/services/cart.service.ts` — extended with `CartSchemeState`, `schemeState()`, `setScheme()`, `clearScheme()`. `emptyCart()` now also clears the scheme.
+- `client/app/modules/orders/components/prepare-order/components/create-invoice/create-invoice.component.ts` — `saveOrder()` payload now includes `savingSchemeGuid: this.cartService.schemeState()?.schemeGuid ?? null` so K's extended `save_order` SP can redeem the scheme + write `invoices.savingSchemeRedemption` JSON on the invoice + mark the scheme as `redeemed`.
+
+**Rail nav additions.**
+
+- `client/app/shared/components/app-shell/rail/rail.component.ts` — imported `lucidePiggyBank` + `lucideHammer`, provided them, and appended `Schemes` + `Karigar` rail items between People and Catalog. (N/O later added a `Reports` entry too.)
+
+**Routing wire-up.**
+
+- `client/app/modules/main/main-routing.config.ts` — added `saving-schemes` + `karigar` routes with `AuthGuard`. (N/O also touched this file to add `reports` + a permission guard.)
+
+**Recipes appended to `client/styles.scss` under a labeled M block.**
+
+- `.progress-bar` + `.progress-bar__fill` + `.progress-bar__label` — horizontal fill track for scheme progress.
+- `.radio-pill-row` — horizontal row of pill radios used inside slide-in panels. Distinct from H's `.radio-pills` container.
+- Status-chip variants: `.status-chip--active` (green), `.status-chip--matured` (green-tinted heavier), `.status-chip--redeemed` (accent blue/amber), `.status-chip--forfeited` (red italic), `.status-chip--issued` (amber), `.status-chip--received` (accent), `.status-chip--settled` (green).
+
+Added as a single `@layer components` block right after J's block; no existing rules touched.
+
+**Verification.**
+
+- `npx ng build --configuration=development` — M's own code compiles clean apart from cosmetic NG8102 / NG8107 optional-chain warnings. The build currently fails at N-owned files (`settings-page.component.html` uses `loadBackups`/`exportBackup`/`restoreBackup` that aren't wired yet; `permissions.service.ts` has an unresolved `store.service` import path). Those are N's to resolve; M's territory compiles.
+- `npx ng test --watch=false --browsers=ChromeHeadless` — same story: fails on N's `permissions.service.ts` TS errors at compile-of-tests time; no M spec is broken. When N fixes their side, existing 15/15 should hold.
+- Walk-through (manual, once N's block clears):
+  - Nav to Schemes → list renders (10 seeded, 7 active / 2 matured / 1 forfeited / 1 redeemed) → click a row → detail renders → click Record installment → save → count updates.
+  - Nav to Karigar → Karigars tab shows 7 seeded people → Job cards tab shows 12 seeded across all statuses → click one → detail renders → issue → receive → settle flow works.
+  - Nav to a seeded customer with schemes → the schemes section renders in the customer view.
+  - Open cart with a customer who has an active scheme → totals panel shows Apply scheme → picker → select → subtractive row + "Payable after scheme" line → save invoice → scheme moves to `redeemed` (SP-side).
+
+**Deferred / follow-up.**
+
+1. **Receipt print for installments** — copy-to-clipboard placeholder is in place on each installment row; a proper 80mm thermal receipt template is deferred to a `PrintService` extension (best owned by whoever redoes I's `print-invoice-preview`).
+2. **Forfeit-reason capture UX** — currently a Swal `input: 'text'` prompt. A dedicated form (with predefined reasons + custom text) is more owner-friendly; deferred.
+3. **RBAC on Forfeit + Delete karigar** — placeholder check on `authData.type === 'admin'`. N's permissions pass will replace this with `canForfeitSavingScheme` / `canDeleteKarigar` guard flags.
+4. **Scheme maturity reminder notifications** — the schema has enough (`expectedMaturityDate`) to drive a scheduled reminder / dashboard tile; not built yet.
+5. **Batch installment import** — no SP exists (K's scope excluded it). If a shop wants to backfill 6 months of installments from a legacy spreadsheet, we'd need `batch_record_installments` or a CSV importer.
+6. **Karigar → product auto-link on settle** — `KarigarJobCards.productId` FK exists but the UI doesn't yet pick a product on settle. L's stock-movement follow-up covers this.
+7. **Scheme redemption UX for over-corpus invoices** — if the corpus exceeds the grand total, the "Payable after scheme" row shows 0 but there's no refund / carry-over path. K's SP handles the reduction; a proper refund receipt is deferred.
+8. **Cart-builder rescan of eligible schemes when customer changes mid-cart** — currently fetches only on init. If the user backs to step 1, picks a different customer, then returns, the eligible list isn't refreshed. Small; will fix with an `effect` on `selectedCustomer` input.
+
+**Commits (submodule branch):**
+
+- `feat(schemes): saving-scheme module with list, detail, enroll, installments`
+- `feat(karigar): karigar module with people, jobs, ledger, issue/receive/settle`
+- `feat(customers): saving-schemes section on customer view`
+- `feat(cart): scheme redemption in cart-builder totals`
+- `feat(shell): rail nav items for Schemes and Karigar`
+
+Not pushed. Parent submodule pointer not bumped.
 
 ### 12.4 Workstream N — status
 
