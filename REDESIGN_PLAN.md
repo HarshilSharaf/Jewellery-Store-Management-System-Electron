@@ -1265,3 +1265,64 @@ Not pushed. Parent submodule pointer not bumped.
 ### 12.5 Workstream O — status (if not folded into N)
 
 Folded into 12.4. See "RBAC coverage summary" above.
+
+---
+
+## 13. Phase 2 close — reconciliation and exit state
+
+**Reconciled 2026-07-21.** Submodule pointer bumped to include Workstreams K / L / M / N on `redesign/ui-modernization`.
+
+**Commit trail:**
+
+- Parent: K (`9012f85` schema + SPs + seed, `d3bf14b` TS + IPC + AES-GCM backup, `68029dd` plan 12.1), M plan (`7d6f3a9` plan 12.3), L (`c162233` serialport + main-process shim, `02743db` plan 12.2).
+- Submodule (`redesign/ui-modernization`): M (`6343c64` schemes, `e9e4eb1` karigar, `6925c54` customers scheme section, `94332eb` cart scheme redemption, `25d7c2e` rail nav items), L (`2f83f0d` scanner + scale services + hardware panel), N (`f3545a6` reports module + services + csv-export util, `904ad50` backup tab, `5c01d32` RBAC + guards + field-visibility).
+
+**End-to-end gates on the reconciled tree:**
+
+- `ng test --watch=false --browsers=ChromeHeadless` — **19/19 SUCCESS** (15 baseline + 4 new csv-export specs).
+- `ng build --configuration=development` — PASS (11.5s). Only pre-existing NG8107 optional-chain warnings; no new errors.
+- Backend / docker rebuild — verified during Workstream K close (green, all 28 new SPs smoke-tested, 4 RBAC rejection cases raise SIGNAL 45000 as expected).
+
+**Phase 2 exit state — what a small Indian jeweller can now do that they couldn't in Phase 1.5:**
+
+1. **Scan a barcode / HUID on the cart** — keyboard-wedge focus-anywhere, burst detection under 50ms with Enter terminator. Adds product by SKU-first, HUID-fallback match. Setting toggle in Print & Hardware.
+2. **Read weight from an RS-232 or USB-HID digital scale** — RS-232 via `serialport` in Electron main + IPC, USB-HID via `Alt+W` keyboard-wedge focus. Live reading with stability indicator; hardware panel in Settings shows COM ports + baud rate + connect/disconnect + live grams display.
+3. **Take old gold in exchange** — first-class cart panel with gross weight (Weigh from scale button), tested purity, buy-back rate (auto from `MetalRatesService` minus `deductionPercent`), computed credit live. Saves to `OldGoldReceipts` and links back to the invoice; shows on print (A4 + 80mm) and on the customer's past-receipts history.
+4. **Run a Golden Harvest-style saving scheme** — enroll a customer, record monthly installments (cash / cheque / online with ref numbers), see paid-so-far + expected corpus + balance-to-pay live, redeem the corpus against a cart invoice, forfeit a lapsed scheme (owner-only). Scheme lifecycle statuses: `active` → `matured` → `redeemed`; alternate path to `forfeited`.
+5. **Track goldsmith (karigar) job-work** — issue pure gold with challan (dynamic stones list, expected return date), receive back the finished piece with actual vs allowed wastage, settle the making charge (cash / cheque / online). Ledger view aggregates issued grams, received grams, wastage, payments, running balance for a date range — the owner's monthly reconciliation view.
+6. **Pull four reports** — day-book (per-day cash/cheque/online split with invoice counts), sales register (wide format with GSTIN + place-of-supply + full GST split per invoice), stock summary by purity (units + weights + tag valuation + optional cost valuation for admins), GSTR-1 export as JSON grouped into b2b + b2cs + hsn sections. CSV export on the tabular reports, JSON export on GSTR-1.
+7. **Take an encrypted backup and restore from one** — passphrase-protected AES-256-GCM archive of a `mysqldump`, chosen target directory via native dialog, restore-with-confirm + relaunch. Friendly "install MySQL client tools" message if `mysqldump` isn't on PATH.
+8. **Enforce role-based access** — three canonical roles (admin, manager, employee) with a permission map served by `get_user_permissions`. Server-side SIGNAL 45000 raises in every destructive/cost-revealing SP (`cancel_order`, `delete_customer`, `delete_product`, `save_shop_settings`, `save_metal_rates`, `reset_invoice_counter`, `forfeit_saving_scheme`, `add_user`, `update_user`, `delete_user`). Client-side field hides on cost overlays, delete buttons, cancel buttons, backup + users tabs.
+
+**Design-system continuity:** every P2 screen consumes only the recipes from workstream blocks G / H / I / J / L / M / N in `client/styles.scss`. Zero new stack additions; zero duplication of tokens; zero Angular Material or FontAwesome regressions. Instrument Serif on KPIs, Inter/Hind + Lucide everywhere else, warm-ivory light + slate dark mode both first-class.
+
+**Recipe layer as of Phase 2 close:** seven labeled workstream blocks at the bottom of `styles.scss` — G (KPI recipes), H (chip / detail-shell / form-section / data-row / page-title / avatar / icon-btn / radio-pills), I (status-chip base + variants / radio-pill-row / money-*), J (tabs-strip / tab-item / section-heading / field-grid), L (scan-badge / old-gold-panel / scale-btn / stable-indicator), M (progress-bar / status-chip status-per-stage variants), N (report-tile / date-range-toolbar / data-total-row / status-chip--pending / export-btn / report-empty / report-caption / forbidden-banner / input-with-toggle / purity-chip__dot). Each block owned by its workstream; no cross-editing.
+
+**Deferred / P3 territory (correctly not touched):**
+
+- WhatsApp Business API (P3, Meta verification 2-6 week lead time).
+- IBJA rate auto-fetch (P3).
+- CSV / Tally XML migration importer/exporter (P3).
+- Hindi / Gujarati / Marathi i18n (P3).
+- Read-only Android companion via Capacitor (P3).
+- `⌘K` command palette with breadcrumbs (P3).
+- Repair / job-ticket module (P3).
+- e-invoice IRP live integration (deferred until pilot crosses ₹5cr turnover).
+
+**Documented Phase 2 follow-ups (small, non-blocking):**
+
+- `oldGoldDeductionPercent` and `barcodeEnabled` columns on `ShopSettings` (currently localStorage).
+- `unlink_old_gold_receipt` SP (client-side unlink is state-only today; DB row stays orphaned but harmless).
+- Real receipt-print for saving-scheme installments (copy-to-clipboard placeholder).
+- Dedicated forfeit-reason capture form (Swal text input today).
+- Saving-scheme maturity reminder notifications.
+- Batch installment import.
+- Karigar → auto stock-movement on settle when `productId` set.
+- Audit-log viewer (needs new `get_audit_log` SP).
+- GSTR-1 CA-signed transformer for actual portal upload (v1 shape is a starting point).
+- `mysqldump` auto-detect at Backup tab load (currently only after a failed create).
+- Effect-based rescan of eligible schemes when customer changes mid-cart.
+- Refund flow when scheme corpus exceeds invoice grand total.
+- Package the `mysqldump` / `mysql` binaries inside the Electron resources folder for Windows so users don't need MySQL client tools on PATH.
+
+**Phase 3 unblocked.** Every Phase 2 wedge — hardware, old-gold, saving-scheme, karigar, reports, backup, RBAC — is shippable. What's left before a Marg-style side-by-side demo is polish (audit log viewer, real receipt-print, forfeit-reason form) and the P3 growth wedges (WhatsApp, IBJA fetch, migration in/out, i18n).
