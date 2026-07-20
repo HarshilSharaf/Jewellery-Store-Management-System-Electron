@@ -672,3 +672,108 @@ JOIN (
   UNION ALL SELECT 11
 ) n ON n.n <= FLOOR(s.totalPaid / s.monthlyAmount);
 
+
+-- =============================================
+-- Phase 3 (Workstream P): ShopSettings repair + WhatsApp fields
+-- =============================================
+UPDATE `shopsettings`
+   SET repairPrefix         = 'RAD/REP/2026/',
+       currentRepairCounter = 9,
+       whatsappPhoneNumberId     = NULL,
+       whatsappBusinessAccountId = NULL,
+       whatsappApiToken          = NULL,
+       whatsappEnabled           = 0,
+       ibjaAutoFetchEnabled      = 0
+ WHERE id = 1;
+
+-- =============================================
+-- Repair tickets (8 across last 45 days, mixed statuses)
+--   Ticket numbers align with repairPrefix + LPAD(5). currentRepairCounter
+--   above is set to 9 so the next CALL create_repair_ticket auto-generates
+--   RAD/REP/2026/00009.
+-- =============================================
+INSERT INTO `repairtickets`
+  (ticketGuid, ticketNumber, customerId, receivedAt, receivedByUserId,
+   itemDescription, weight, estimatedCharge, estimatedReturnDate, status,
+   actualCharge, paymentMode, paymentRef, deliveredAt, notes, karigarId)
+VALUES
+  (UUID(), 'RAD/REP/2026/00001',  1, DATE_SUB(NOW(), INTERVAL 42 DAY), 2,
+   '22K gold chain clasp broken', 12.500, 800.00, DATE_SUB(CURDATE(), INTERVAL 35 DAY), 'delivered',
+   750.00, 'cash', NULL, DATE_SUB(NOW(), INTERVAL 33 DAY), 'Solder repair, polish', 1),
+  (UUID(), 'RAD/REP/2026/00002',  3, DATE_SUB(NOW(), INTERVAL 38 DAY), 2,
+   'Bangle resize (18K)', 8.400, 1500.00, DATE_SUB(CURDATE(), INTERVAL 28 DAY), 'delivered',
+   1500.00, 'online', 'UPI-778812', DATE_SUB(NOW(), INTERVAL 27 DAY), 'Reduce by 2mm', 2),
+  (UUID(), 'RAD/REP/2026/00003',  7, DATE_SUB(NOW(), INTERVAL 30 DAY), 3,
+   'Silver anklet snapped', 32.000, 400.00, DATE_SUB(CURDATE(), INTERVAL 24 DAY), 'delivered',
+   350.00, 'cash', NULL, DATE_SUB(NOW(), INTERVAL 22 DAY), NULL, NULL),
+  (UUID(), 'RAD/REP/2026/00004',  4, DATE_SUB(NOW(), INTERVAL 20 DAY), 2,
+   'Diamond ring — replace missing stone', 4.100, 3500.00, DATE_SUB(CURDATE(), INTERVAL 10 DAY), 'ready',
+   NULL, NULL, NULL, NULL, 'Customer to inspect stone match', 5),
+  (UUID(), 'RAD/REP/2026/00005', 12, DATE_SUB(NOW(), INTERVAL 15 DAY), 3,
+   'Kundan choker — 2 stones loose', 26.400, 2200.00, DATE_SUB(CURDATE(), INTERVAL 5 DAY), 'in_progress',
+   NULL, NULL, NULL, NULL, 'Re-set kundan + polish', 4),
+  (UUID(), 'RAD/REP/2026/00006',  8, DATE_SUB(NOW(), INTERVAL 8 DAY), 2,
+   'Ganesha pendant — hook worn out', 4.200, 500.00, DATE_ADD(CURDATE(), INTERVAL 2 DAY), 'in_progress',
+   NULL, NULL, NULL, NULL, NULL, NULL),
+  (UUID(), 'RAD/REP/2026/00007', 10, DATE_SUB(NOW(), INTERVAL 3 DAY), 3,
+   '22K gold jhumka — polish + tighten drops', 8.900, 600.00, DATE_ADD(CURDATE(), INTERVAL 4 DAY), 'received',
+   NULL, NULL, NULL, NULL, NULL, NULL),
+  (UUID(), 'RAD/REP/2026/00008',  5, DATE_SUB(NOW(), INTERVAL 12 DAY), 2,
+   'Antique silver bracelet — cannot repair', 45.000, NULL, NULL, 'declined',
+   NULL, NULL, NULL, NULL, 'Metal too fragile; declined at intake', NULL);
+
+-- =============================================
+-- WhatsApp send log (4 rows, mixed statuses; linked to seeded invoices)
+-- =============================================
+INSERT INTO `whatsappsendlog`
+  (sendGuid, invoiceId, customerId, templateName, templateLanguage,
+   templateVariables, attachmentUrl, phoneNumber, metaMessageId, status,
+   errorMessage, sentByUserId, queuedAt, sentAt, deliveredAt, readAt)
+VALUES
+  (UUID(),
+   (SELECT id FROM invoices WHERE invoiceNumber = 'RAD/2026/00001'),
+   1, 'invoice_ready', 'en',
+   JSON_ARRAY('Aarav', 'RAD/2026/00001', '148000'),
+   NULL, '+919876543210', 'wamid.HBgLOTE5ODc2NTQzMjEwFQIAERgSMDAxMjM0NTY3ODkwMTIzNDU2AA==', 'delivered',
+   NULL, 1,
+   DATE_SUB(NOW(), INTERVAL 20 DAY), DATE_SUB(NOW(), INTERVAL 20 DAY), DATE_SUB(NOW(), INTERVAL 20 DAY), NULL),
+  (UUID(),
+   (SELECT id FROM invoices WHERE invoiceNumber = 'RAD/2026/00002'),
+   2, 'invoice_ready', 'en',
+   JSON_ARRAY('Priya', 'RAD/2026/00002', '232000'),
+   NULL, '+919876543211', 'wamid.HBgLOTE5ODc2NTQzMjExFQIAERgSMDAxMjM0NTY3ODkwMTIzNDU2AB==', 'read',
+   NULL, 1,
+   DATE_SUB(NOW(), INTERVAL 15 DAY), DATE_SUB(NOW(), INTERVAL 15 DAY), DATE_SUB(NOW(), INTERVAL 15 DAY), DATE_SUB(NOW(), INTERVAL 15 DAY)),
+  (UUID(),
+   (SELECT id FROM invoices WHERE invoiceNumber = 'RAD/2026/00003'),
+   3, 'invoice_ready', 'en',
+   JSON_ARRAY('Rohan', 'RAD/2026/00003', '98000'),
+   NULL, '+919876543212', NULL, 'failed',
+   'Recipient number is not on WhatsApp', 1,
+   DATE_SUB(NOW(), INTERVAL 8 DAY), NULL, NULL, NULL),
+  (UUID(),
+   (SELECT id FROM invoices WHERE invoiceNumber = 'RAD/2026/00004'),
+   4, 'invoice_ready', 'en',
+   JSON_ARRAY('Ananya', 'RAD/2026/00004', '52000'),
+   NULL, '+919876543213', NULL, 'queued',
+   NULL, 1,
+   DATE_SUB(NOW(), INTERVAL 1 DAY), NULL, NULL, NULL);
+
+-- =============================================
+-- IBJA rate snapshots (3 rows: 2 successes + 1 parse failure)
+-- =============================================
+INSERT INTO `ibjaratesnapshots`
+  (snapshotGuid, fetchedAt, session, rawResponse, parsedRates, status, errorMessage)
+VALUES
+  (UUID(), DATE_SUB(NOW(), INTERVAL 2 DAY), 'AM',
+   '<html><body><table><tr><td>999</td><td>78425.00</td></tr><tr><td>916</td><td>71852.00</td></tr></table></body></html>',
+   JSON_OBJECT('999', 7842.5, '916', 7185.2, '750', 5881.9, '585', 4587.9, 'silver_999', 95.6),
+   'success', NULL),
+  (UUID(), DATE_SUB(NOW(), INTERVAL 1 DAY), 'PM',
+   '<html><body><table><tr><td>999</td><td>78560.00</td></tr><tr><td>916</td><td>71976.00</td></tr></table></body></html>',
+   JSON_OBJECT('999', 7856.0, '916', 7197.6, '750', 5892.0, '585', 4595.6, 'silver_999', 95.9),
+   'success', NULL),
+  (UUID(), DATE_SUB(NOW(), INTERVAL 12 HOUR), 'AM',
+   '<html><body><div>Rates unavailable due to portal maintenance.</div></body></html>',
+   NULL,
+   'parse_failure', 'No purity rows matched any known template shape');
