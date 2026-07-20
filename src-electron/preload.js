@@ -75,6 +75,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
     delete:  (payload) => ipcRenderer.invoke('backup:delete',  payload),
   },
 
+  dialog: {
+    chooseDirectory: (payload) => ipcRenderer.invoke('dialog:chooseDirectory', payload),
+  },
+
+  scale: {
+    getStatus:  ()        => ipcRenderer.invoke('scale:getStatus'),
+    listPorts:  ()        => ipcRenderer.invoke('scale:listPorts'),
+    open:       (payload) => ipcRenderer.invoke('scale:open', payload),
+    close:      ()        => ipcRenderer.invoke('scale:close'),
+    getReading: ()        => ipcRenderer.invoke('scale:getReading'),
+    onReading:  (callback) => {
+      if (typeof callback !== 'function') { return () => undefined; }
+      const listener = (_event, reading) => callback(reading);
+      ipcRenderer.on('scale:reading', listener);
+      return () => ipcRenderer.removeListener('scale:reading', listener);
+    },
+  },
+
   store: {
     get:              (key)        => ipcRenderer.invoke('store:get', key),
     set:              (key, value) => ipcRenderer.invoke('store:set', key, value),

@@ -23,6 +23,7 @@ const ElectronStore = require('electron-store');
 const bcrypt = require('bcryptjs');
 const logger = require('electron-log');
 const backupService = require('./backup');
+const scaleService = require('./scale');
 
 const isDev = !app.isPackaged;
 
@@ -681,6 +682,71 @@ function registerIpcHandlers() {
       logger.error('[backup:delete] failed:', err);
       return { ok: false, error: err.message };
     }
+  });
+
+  // -- Native dialog (directory picker) ------------------------------------
+  ipcMain.handle('dialog:chooseDirectory', async (_event, payload) => {
+    try {
+      const result = await dialog.showOpenDialog(mainWindow, {
+        title: payload?.title || 'Choose a directory',
+        defaultPath: payload?.defaultPath || undefined,
+        properties: ['openDirectory', 'createDirectory'],
+      });
+      if (result.canceled || !result.filePaths || !result.filePaths.length) {
+        return { canceled: true, filePaths: [] };
+      }
+      return { canceled: false, filePaths: result.filePaths };
+    } catch (err) {
+      logger.error('[dialog:chooseDirectory] failed:', err);
+      return { canceled: true, filePaths: [], error: err.message };
+    }
+  });
+
+  // -- Weighing scale (RS-232 via serialport) -------------------------------
+  ipcMain.handle('scale:getStatus', async () => {
+    return scaleService.status();
+  });
+
+  ipcMain.handle('scale:listPorts', async () => {
+    try {
+      const ports = await scaleService.listPorts();
+      return { ok: true, ports };
+    } catch (err) {
+      logger.error('[scale:listPorts] failed:', err);
+      return { ok: false, error: err.message, ports: [] };
+    }
+  });
+
+  ipcMain.handle('scale:open', async (_event, payload) => {
+    try {
+      const result = await scaleService.open(
+        payload?.portPath,
+        payload?.baudRate,
+        (reading) => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('scale:reading', reading);
+          }
+        },
+      );
+      return { ok: true, ...result };
+    } catch (err) {
+      logger.error('[scale:open] failed:', err);
+      return { ok: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('scale:close', async () => {
+    try {
+      await scaleService.close();
+      return { ok: true };
+    } catch (err) {
+      logger.error('[scale:close] failed:', err);
+      return { ok: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('scale:getReading', async () => {
+    return scaleService.getReading();
   });
 
   // -- Store -----------------------------------------------------------------
