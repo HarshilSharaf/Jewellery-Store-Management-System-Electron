@@ -324,3 +324,88 @@ Deferred out of C:
 - Live app walkthrough: not run (Electron `npm start` not exercised as part of E — F's concurrent SCSS refactor still had uncommitted `styles.scss` + `assets/partials/*` changes in the working tree; stashing them restores a clean build, so E's changes are known-clean).
 
 **Explicit non-goals kept in E (correctly not touched):** RBAC, saving-scheme, karigar, reports v1, WhatsApp send, IBJA fetch, real backup/restore, real user CRUD, scale/scanner integration.
+
+### 7.6 Workstream F — status
+
+**Landed 2026-07-20, submodule commits on `redesign/ui-modernization`: `d729d27` (data-table), `e8baa6b` (customers), `07b26d6` (inventory purity), `cddb1c7` (categories paginator + orders stepper + navbar cart badge + global error handler), `9e9b368` (Material theme drop from styles.scss), `bea86d3` (FA to Lucide sweep), `cfa7ddc` (Sass @use migration).** Parent-repo submodule pointer not bumped; parent `package.json` untouched.
+
+**Angular Material eliminated. Zero `mat-*` selectors remain in `client/app`** (verified: `grep -r "mat-form-field\|mat-select\|mat-datepicker" client/app/modules/{customers,inventory,orders}` is empty; only comment references in `data-table.component.scss` document the migration). `@use '@angular/material' as mat;` + `mat.define-theme` + `mat.all-component-themes` all removed from `client/styles.scss`. Migrated surfaces:
+
+| Surface | mat-* consumed → replacement |
+|---|---|
+| Shared `data-table` | `mat-table` + `mat-header-cell` + `mat-cell` + `mat-paginator` + `mat-sort` + `mat-progress-spinner` (6 usages) → native `<table>` + hand-rolled sort chevrons (`lucideChevronsUpDown`/`Up`/`Down`) + custom paginator with first/prev/next/last buttons. Public @Input/@Output surface unchanged; `pageChangeEvent` still emits `{ pageIndex, pageSize, length, searchQuery }`. Density: 36px desktop, 44px `@media (pointer: coarse)` via CSS var. |
+| Customers `add-customer-form` | `MatDialog` + `mat-dialog-title/content/actions` + `MatDialogModule` (4 usages) → self-owned overlay panel (host `[open]` input, `(closed)` output). Escape closes; overlay-click closes; `.hlm-input.is-invalid` for Reactive-Forms error state. |
+| Categories `available-master/sub/product-categories` | `mat-paginator` (3 usages) → new shared `app-simple-paginator` (`client/app/shared/components/simple-paginator/`). |
+| Orders `prepare-order/select-customer` | `mat-paginator` (1 usage) → `app-simple-paginator`. |
+| Orders `prepare-order/stepper` | `mat-stepper` + `mat-step` + `mat-button` + `MatStepperModule` + `STEPPER_GLOBAL_OPTIONS` + `BreakpointObserver` (12 usages) → hand-rolled 4-step wizard with numbered/checked pills, guards on advance, `lucideCheck`/`ChevronRight`/`ChevronLeft`. |
+| Navbar `add-to-cart` | `MatBadgeModule` (1 usage) → tabular-nums badge span + `lucideShoppingBag`. |
+| Shared `global-error-handler` service | `MatSnackBar` (1 usage) → SweetAlert2 toast mixin (already the app's dialog pattern). |
+
+**Total `mat-*` usages killed: 28 across 11 files.**
+
+**FontAwesome to Lucide swap complete.** `grep -r "fa fa-\|fa-solid\|fa-regular\|fa-brands\|fontawesome" client/ --include="*.html" --include="*.ts" --include="*.scss"` returns zero non-comment hits. Icons swapped across 26 files: sidebar menu (dashboard/orders/customers/categories/inventory + logout — all 7 items now `lucideLayoutDashboard`/`ShoppingCart`/`Users`/`Tags`/`Package`/`LogOut`); navbar profile-dropdown (`lucideUser`/`Settings`/`Power`); dashboard main tiles + list icons (`lucideIndianRupee`/`Package`/`Users`/`TrendingUp`/`TrendingDown`/`ChartLine`/`Gem`/`ArrowRight`); dashboard recent-orders + data-table row actions (`lucideSquareArrowOutUpRight`/`Ban`/`ShoppingCart`); customers view-details (person/pencil/trash/rotate/save/loader/user); inventory forms + view-details (pencil/trash/rotate/save/loader/plus); orders page + details + payments + create-invoice (`lucideShoppingCart`/`Printer`/`IndianRupee`/`Save`); category add-form buttons (`lucidePlus`); cart-items row delete (`lucideCircleMinus`); info-card delta arrows (`lucideArrowUp`/`Down`); page-header back arrow (`lucideArrowLeft`); image-upload cloud-upload across all four variants (`lucideCloudUpload`). Registered per-component via `viewProviders: [provideIcons({...})]`.
+
+**Legacy Sass `@import` migration.** `client/styles.scss` no longer emits any `@import`-deprecation warnings originating from project SCSS. `client/assets/lightning-admin.scss` moved from six `@import "./partials/..."` lines to `@use` (with `variables` namespaced as `*` to preserve the existing `$primary` / `$sidebar-icon-color` / `$text-primary` references). Each internal partial (`_bootstrap-compat`, `_navbar`, `_sidebar`, `_themes`, `_dashboard`) gained an explicit `@use "variables" as *;` header. `@extend .icon-style` in `_sidebar.scss` uses `!optional` so cross-module extension no longer fails. `darken()` calls in `_bootstrap-compat.scss` (7 instances) replaced with `color.adjust($lightness: -N%)` and `@use "sass:color"` added. `styles.scss` loads `./assets/lightning-admin` + `animate.css/animate.min` via `@use` at the top of the file. Remaining build warnings are all `NG8107` optional-chain style notes in `AddProductFormComponent` / `CreateInvoiceComponent` / `PrintInvoiceComponent` templates and one unused-`PageHeaderComponent` in `MainComponent` — all pre-existing, none from this workstream.
+
+**Rajdhani font holdout.** Resolved by Workstream E in `print-invoice.component.scss` rewrite. `grep -r "fonts.googleapis.com\|Rajdhani" client/` returns zero hits.
+
+**Parent-repo cleanup (flagged, not done — requires parent-repo access):**
+
+- **Drop `@angular/material` from `package.json`.** No app-code consumers remain in `client/`. Should also drop `@angular/cdk` unless something else pulls it (Spartan/brain declares it as peer).
+- **Drop `@fortawesome/fontawesome-free` from `package.json`.** No app-code consumers remain.
+- **Optional: move `animate.css` into `angular.json` `styles` array** so the Sass entry point no longer needs to load it. Not urgent — Sass `@use 'animate.css/animate.min'` works today.
+
+**Verification at close of F:**
+
+- `ng test --watch=false --browsers=ChromeHeadless` — **15/15 SUCCESS** (baseline 7 + E's 8 amount-in-words specs).
+- `ng build --configuration=development` — PASS (no new errors; only pre-existing NG8107 warnings from E's print-invoice + inventory forms remain).
+- Grep gates:
+  - `grep -r "fa fa-\|fa-solid\|fa-regular\|fontawesome" client/` → empty (excluding doc-comment in `styles.scss`).
+  - `grep -r "fonts.googleapis.com" client/` → empty.
+  - `grep -r "mat-form-field\|mat-select\|mat-datepicker" client/app/modules/{customers,inventory,orders}` → empty.
+  - `grep -r "mat-\|MatModule\|@angular/material" client/app` → matches only a comment reference in `data-table.component.scss`.
+
+**Files touched (this workstream, submodule tree — parent repo untouched):**
+
+- `client/app/shared/components/data-table/data-table.component.{ts,html,scss}` (rewritten).
+- `client/app/shared/components/simple-paginator/simple-paginator.component.{ts,html,scss}` (new).
+- `client/app/shared/components/sidebar/sidebar.component.{ts,html}` (icons → Lucide).
+- `client/app/shared/components/navbar/add-to-cart/add-to-cart.component.{ts,html,scss}` (badge + icon rewrite).
+- `client/app/shared/components/navbar/profile-dropdown/profile-dropdown.component.{ts,html}` (icons → Lucide).
+- `client/app/shared/components/cart-items/cart-items.component.{ts,html}`.
+- `client/app/shared/components/info-card/info-card.component.{ts,html}`.
+- `client/app/shared/components/page-header/page-header.component.{ts,html}`.
+- `client/app/shared/services/global-error-handler.service.ts` (SweetAlert toast).
+- `client/app/modules/customers/components/add-customer-form/*.{ts,html,scss}` (overlay panel).
+- `client/app/modules/customers/components/customers-page/*.{ts,html,scss}` (button + [open] plumbing).
+- `client/app/modules/customers/components/view-details/*.{ts,html}` (icons).
+- `client/app/modules/customers/components/image-upload/*.{ts,html}` (icons).
+- `client/app/modules/inventory/components/product-details-form/*.{ts,html}` (purity label + icons).
+- `client/app/modules/inventory/components/product-image-upload/*.{ts,html}` (icons).
+- `client/app/modules/inventory/components/view-product-details/*.{ts,html}` (icons).
+- `client/app/modules/inventory/components/available-products/components/add-product-form/*.{ts,html}` (purity label + icons).
+- `client/app/modules/inventory/components/available-products/components/image-upload/*.{ts,html}` (icons).
+- `client/app/modules/orders/components/orders-page/*.{ts,html,scss}` (icons + toolbar layout).
+- `client/app/modules/orders/components/order-details/*.{ts,html}` (icons).
+- `client/app/modules/orders/components/order-payments/*.{ts,html}` (icons).
+- `client/app/modules/orders/components/prepare-order/components/stepper/*.{ts,html,scss}` (wizard rebuild).
+- `client/app/modules/orders/components/prepare-order/components/select-customer/*.{ts,html}` (simple-paginator swap).
+- `client/app/modules/orders/components/prepare-order/components/create-invoice/*.{ts,html}` (icons).
+- `client/app/modules/categories/components/master-categories/components/{available-master-categories,add-master-category-form}/*.{ts,html}`.
+- `client/app/modules/categories/components/sub-categories/components/{available-sub-categories,add-sub-category-form}/*.{ts,html}`.
+- `client/app/modules/categories/components/product-categories/components/{available-product-categories,add-product-category-form}/*.{ts,html}`.
+- `client/app/modules/dashboard/components/main/main.component.{ts,html}` (icons).
+- `client/app/modules/dashboard/components/recent-orders/recent-orders.component.{ts,html}` (icons).
+- `client/app/modules/profile/components/image-upload/*.{ts,html}` (icons).
+- `client/app/modules/profile/components/profile-page/profile-page.component.{ts,html}` (icons).
+- `client/styles.scss` (drop Material theme, hoist lightning-admin to `@use`).
+- `client/assets/lightning-admin.scss` (`@import` → `@use`).
+- `client/assets/partials/_bootstrap-compat.scss` (`@use` + `color.adjust`).
+- `client/assets/partials/_navbar.scss` / `_sidebar.scss` / `_themes.scss` / `_dashboard.scss` (`@use "variables" as *;`).
+
+**Deferred / follow-ups (documented, not blocking):**
+
+- **`prepare-order/create-invoice.component`** — no Material remaining, but still uses Bootstrap grid classes; matches surrounding modules (not F's concern to overhaul).
+- **`_bootstrap-compat.scss`** — pre-existing NG8107 optional-chain warnings in Add-product-form / Create-invoice / Print-invoice templates. Cosmetic. Not F's territory.
+- **`animate.css` migration to `angular.json`** — deferred, requires parent-repo write.
+- **`@angular/material` + `@fortawesome/fontawesome-free` npm packages** — safe to drop from parent `package.json` now that no consumers remain in `client/app`. Flagged for a separate parent-repo commit.
