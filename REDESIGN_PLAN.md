@@ -2398,3 +2398,39 @@ The `body` selector inside the Y block now reads `font-size: calc(var(--font-siz
 - SCSS budget widening (from 8 kB error → 16 kB) is honest but suggests 3 templates (`print-invoice`, `cart-builder`, `available-products`) could benefit from a cleanup pass.
 
 **Pilot-shipping state:** Every P3.5 concern raised at the start of this session has a working answer. The app is ready for a pilot store install with a real jeweller — subject to the external dependencies still outstanding (Meta WhatsApp verification, native-speaker translation QA, `mysqldump` binary bundling for Windows deployment). None of those are coding tasks.
+
+---
+
+## 18. Phase 3.6 — Electron runtime performance
+
+**Kicked off 2026-07-21.** W's Angular perf pass optimized the *renderer bundle* (smaller download, lazy chunks, Chart.js off critical path) but did nothing about **Electron's actual runtime footprint** — Chromium's process model, V8 heap sizing, GPU acceleration on integrated GPUs, backgroundThrottling, splash / ready-to-show flash, mysql2 pool churn, IPC leaks, ASAR unpacking. On the target 4 GB RAM Tier-2/3 shop PC, an unoptimized Electron app can idle at 400-800 MB just from Chromium boilerplate.
+
+**Scope this session:**
+
+- **Startup latency** — cold boot from double-click to first render. Ready-to-show pattern to eliminate the white flash; splash-screen tuning; preload script minimization; async main-process initialization; window creation before pool warm-up where safe.
+- **Idle memory** — V8 heap size caps (`--js-flags='--max-old-space-size=...'` per process), Chromium `--disk-cache-size` limits, disable hardware-media-key-handling and other unused features, session-cache cleanup on quit, backgroundThrottling for hidden windows.
+- **GPU decisions** — integrated Intel HD graphics on shop PCs frequently trigger Chromium's GPU-process crashes; SW rendering is sometimes more stable. Audit `app.disableHardwareAcceleration()` vs enabled.
+- **Process model** — Electron 40 defaults + `sandbox: true` where safe; audit `contextIsolation` + `nodeIntegration` already at correct posture (Phase 1). Consider `--single-process` on very low-RAM machines (trade-off: renderer crash brings down main).
+- **ASAR + packaging** — verify `asar: true` in electron-builder config; unpack only genuinely-native modules (`serialport`, native mysql2 bindings). Reduces file-count reads on cold boot.
+- **Leaks** — mysql2 pool: verify connections close on graceful shutdown, no pool-leak across settings-triggered relaunch. Preload IPC listeners: verify no orphaned event listeners on window reload. Chart.js instance disposal: dashboard chart's `MutationObserver` pattern (Phase 1.5 G) — verify no leak.
+- **Dev vs prod discipline** — DevTools disabled in prod (`nodeEnv=production` gate), source maps stripped, `--inspect` flag rejected, remote debugging port closed.
+- **Crash recovery** — auto-relaunch on unhandled main-process error; renderer-crash detection (fire an in-app toast rather than white screen); optional Sentry / electron-log rotation.
+
+**Non-goals for this session:**
+
+- Auto-updater (not applicable to license-key desktop distribution).
+- Multiple-window support (single-window shop-counter app by design).
+- Custom Chromium build (out of scope; use flags on the shipped binary).
+
+**Execution.** Two workstreams:
+
+- **Z** — Research + audit. Sequential. Verifies current Electron 40 best practices against Electron official docs + measures baseline memory + startup on the checked-out branch. Produces a punch list of concrete changes.
+- **AA** — Implementation. Applies Z's punch list to `src-electron/**`, `package.json` (electron-builder config), `angular.json` (dev-only vs prod build discrimination). Verifies before/after.
+
+### 18.1 Workstream Z — status
+
+_TBD_
+
+### 18.2 Workstream AA — status
+
+_TBD_
