@@ -27,6 +27,7 @@ CREATE TABLE `shopsettings` (
   `whatsappApiToken` VARCHAR(512) DEFAULT NULL,
   `whatsappEnabled` TINYINT(1) NOT NULL DEFAULT 0,
   `ibjaAutoFetchEnabled` TINYINT(1) NOT NULL DEFAULT 0,
+  `typographyPreset` ENUM('editorial','modern_sans','traditional_devanagari','compact') NOT NULL DEFAULT 'editorial',
   `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),

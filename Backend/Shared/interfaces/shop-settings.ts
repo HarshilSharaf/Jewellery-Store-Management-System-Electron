@@ -20,4 +20,5 @@ export interface ShopSettings {
   roundOffEnabled: 0 | 1 | boolean;
   backupDir?: string | null;
   defaultPrintVariant?: 'a4' | 'thermal80';
+  typographyPreset?: 'editorial' | 'modern_sans' | 'traditional_devanagari' | 'compact';
 }

@@ -15,7 +15,7 @@ export class ShopSettingsService {
 
   save(settings: ShopSettings, actorUserId: number | null = null): Promise<ShopSettings[]> {
     return this.databaseService.execute(
-      'call save_shop_settings(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);',
+      'call save_shop_settings(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);',
       [
         settings.shopName,
         settings.gstin,
@@ -37,6 +37,7 @@ export class ShopSettingsService {
         settings.roundOffEnabled ? 1 : 0,
         settings.backupDir ?? null,
         settings.defaultPrintVariant ?? 'a4',
+        settings.typographyPreset ?? 'editorial',
         actorUserId
       ]
     );

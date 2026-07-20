@@ -272,7 +272,7 @@ function registerIpcHandlers() {
   ipcMain.handle('shopSettings:save', async (_event, payload, options) => {
     return runWithTimeout(async () => {
       const [results] = await pool.execute(
-        'call save_shop_settings(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);',
+        'call save_shop_settings(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);',
         [
           payload?.shopName,
           payload?.gstin,
@@ -294,6 +294,7 @@ function registerIpcHandlers() {
           payload?.roundOffEnabled ? 1 : 0,
           payload?.backupDir ?? null,
           payload?.defaultPrintVariant ?? 'a4',
+          payload?.typographyPreset ?? 'editorial',
           payload?.actorUserId ?? null,
         ],
       );

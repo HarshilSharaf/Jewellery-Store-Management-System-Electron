@@ -21,6 +21,7 @@ CREATE PROCEDURE `save_shop_settings`(
   IN p_roundOffEnabled       TINYINT(1),
   IN p_backupDir             VARCHAR(255),
   IN p_defaultPrintVariant   VARCHAR(20),
+  IN p_typographyPreset      VARCHAR(32),
   IN p_actorUserId           INT
 )
 BEGIN
@@ -39,7 +40,7 @@ BEGIN
     (id, shopName, gstin, pan, addressLine1, addressLine2, city, state, stateCode,
      pincode, phone, email, logoPath, invoicePrefix, invoiceStartFrom,
      currentInvoiceCounter, defaultCurrency, timezone, roundOffEnabled,
-     backupDir, defaultPrintVariant)
+     backupDir, defaultPrintVariant, typographyPreset)
   VALUES
     (1, p_shopName, p_gstin, p_pan, p_addressLine1, p_addressLine2, p_city,
      p_state, p_stateCode, p_pincode, p_phone, p_email, p_logoPath,
@@ -50,7 +51,8 @@ BEGIN
      COALESCE(p_timezone, 'Asia/Kolkata'),
      COALESCE(p_roundOffEnabled, 1),
      p_backupDir,
-     COALESCE(p_defaultPrintVariant, 'a4'))
+     COALESCE(p_defaultPrintVariant, 'a4'),
+     COALESCE(p_typographyPreset, 'editorial'))
   ON DUPLICATE KEY UPDATE
     shopName              = VALUES(shopName),
     gstin                 = VALUES(gstin),
@@ -71,7 +73,8 @@ BEGIN
     timezone              = VALUES(timezone),
     roundOffEnabled       = VALUES(roundOffEnabled),
     backupDir             = VALUES(backupDir),
-    defaultPrintVariant   = VALUES(defaultPrintVariant);
+    defaultPrintVariant   = VALUES(defaultPrintVariant),
+    typographyPreset      = VALUES(typographyPreset);
 
   SELECT * FROM shopsettings WHERE id = 1;
 END$$
