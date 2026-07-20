@@ -1,52 +1,42 @@
 DROP procedure IF EXISTS `add_customer`;
-DELIMITER $$ 
+DELIMITER $$
 CREATE PROCEDURE `add_customer` (
-  IN fName text, 
-  IN lName text, 
-  IN dob date, 
-  IN gender varchar(6), 
-  IN address text, 
-  IN city text, 
-  IN email varchar(255), 
-  IN phoneNumber bigint, 
-  IN imageFileName text
-) 
+  IN fName        TEXT,
+  IN lName        TEXT,
+  IN dob          DATE,
+  IN gender       VARCHAR(6),
+  IN address      TEXT,
+  IN city         TEXT,
+  IN state        TEXT,
+  IN stateCode    VARCHAR(2),
+  IN email        VARCHAR(255),
+  IN phoneNumber  VARCHAR(20),
+  IN gstin        VARCHAR(15),
+  IN pan          VARCHAR(10),
+  IN remarks      TEXT,
+  IN imageFileName TEXT
+)
 BEGIN
+  DECLARE l_customerGuid CHAR(36);
+  DECLARE l_imageFileName TEXT DEFAULT NULL;
 
-DECLARE GUID CHAR(36);
-DECLARE l_imageFileName TEXT DEFAULT NULL;
-SET GUID = UUID();
+  SET l_customerGuid = UUID();
 
-IF(imageFileName IS NOT NULL)
-	THEN 
-		BEGIN
-			SET l_imageFileName = CONCAT(GUID,'-customer-',imageFileName);
-		END;
-	END IF;
+  IF imageFileName IS NOT NULL THEN
+    SET l_imageFileName = CONCAT(l_customerGuid, '-customer-', imageFileName);
+  END IF;
 
-    -- Set the time zone to the server's global time zone
-    SET time_zone = 'SYSTEM';
-    INSERT INTO customers(
-      customerGuid, firstName, lastname, 
-      dateOfBirth, gender, address, city, 
-      email, phoneNumber, imagePath, createdAt
-    ) 
-    VALUES 
-      (
-        uuid(), 
-        fName, 
-        lName, 
-        dob, 
-        gender, 
-        address, 
-        city, 
-        email, 
-        phoneNumber, 
-        l_imageFileName, 
-        current_timestamp()
-      );
+  SET time_zone = 'SYSTEM';
+  INSERT INTO customers(
+    customerGuid, firstName, lastName, dateOfBirth, gender,
+    address, city, state, stateCode, email, phoneNumber,
+    gstin, pan, remarks, imagePath, createdAt
+  ) VALUES (
+    l_customerGuid, fName, lName, dob, gender,
+    address, city, state, stateCode, email, phoneNumber,
+    gstin, pan, remarks, l_imageFileName, CURRENT_TIMESTAMP()
+  );
 
-      SELECT * FROM customers WHERE id = last_insert_id();
-END$$ 
+  SELECT * FROM customers WHERE id = LAST_INSERT_ID();
+END$$
 DELIMITER ;
-;

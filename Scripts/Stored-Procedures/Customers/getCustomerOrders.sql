@@ -1,93 +1,74 @@
 DROP procedure IF EXISTS `get_customer_orders`;
 DELIMITER $$
 CREATE PROCEDURE `get_customer_orders`(
-IN p_getCancelledOrders TINYINT(1),
-IN p_customerGuid char(36),
-IN itemsPerPage INT,
-IN pageNumber INT,
-IN searchQuery VARCHAR(255)
+  IN p_getCancelledOrders TINYINT(1),
+  IN p_customerGuid       CHAR(36),
+  IN itemsPerPage         INT,
+  IN pageNumber           INT,
+  IN searchQuery          VARCHAR(255)
 )
 BEGIN
-DECLARE startIndex INT;
-DECLARE l_customerID INT;
-DECLARE searchPattern VARCHAR(255);
+  DECLARE startIndex INT;
+  DECLARE l_customerID INT;
+  DECLARE searchPattern VARCHAR(255);
 
-SET searchPattern = CONCAT('%', searchQuery, '%');
-SET startIndex = (pageNumber - 1) * itemsPerPage;
-SET l_customerID = (SELECT id FROM customers WHERE customerGuid = p_customerGuid);
+  SET searchPattern = CONCAT('%', searchQuery, '%');
+  SET startIndex = (pageNumber - 1) * itemsPerPage;
+  SET l_customerID = (SELECT id FROM customers WHERE customerGuid = p_customerGuid);
 
-    IF(p_getCancelledOrders = 1) 
-		THEN
-			BEGIN
-                SELECT 
-                    COUNT(A.id) AS 'totalRecords' 
-                FROM invoices A
-                WHERE 
-                    ( A.totalAmountWithGst LIKE searchPattern OR
-                    A.remarks LIKE searchPattern ) AND
-                    A.soldToCustomer = l_customerID; 
+  IF p_getCancelledOrders = 1 THEN
+    SELECT COUNT(A.id) AS totalRecords
+      FROM invoices A
+     WHERE A.soldToCustomer = l_customerID
+       AND (A.invoiceNumber LIKE searchPattern
+            OR A.grandTotal LIKE searchPattern
+            OR A.remarks LIKE searchPattern);
 
-				SELECT 
-					A.id as 'orderId',
-                    A.invoiceGuid,
-					COUNT(B.ProductId) as 'numberOfProducts',
-                    A.totalAmountWithGst,
-                    A.createdAt as 'orderDate',
-                    A.remarks,
-                    A.cancelledAt,
-                    A.isPaymentDone as 'paymentStatus'
-                FROM invoices A
-                -- left join is implemented as while cancelling any order the entries from
-                -- invoice_products_mappings will be hard deleted
-                LEFT JOIN invoice_products_mappings B
-					ON A.id = B.InvoiceId
-                INNER JOIN customers C
-					ON C.Id = A.soldToCustomer
-                WHERE C.customerGuid = p_customerGuid
-                GROUP BY A.id
-                HAVING 
-                    A.totalAmountWithGst LIKE searchPattern OR
-                    A.remarks LIKE searchPattern
-                LIMIT itemsPerPage OFFSET startIndex;
+    SELECT
+      A.id           AS orderId,
+      A.invoiceGuid,
+      A.invoiceNumber,
+      (SELECT COUNT(*) FROM invoicelineitems B WHERE B.invoiceId = A.id) AS numberOfLineItems,
+      A.grandTotal,
+      A.createdAt AS orderDate,
+      A.remarks,
+      A.cancelledAt,
+      A.cancelReason,
+      A.isPaymentDone AS paymentStatus
+    FROM invoices A
+    WHERE A.soldToCustomer = l_customerID
+      AND (A.invoiceNumber LIKE searchPattern
+           OR A.grandTotal LIKE searchPattern
+           OR A.remarks LIKE searchPattern)
+    ORDER BY A.createdAt DESC
+    LIMIT itemsPerPage OFFSET startIndex;
+  ELSE
+    SELECT COUNT(A.id) AS totalRecords
+      FROM invoices A
+     WHERE A.soldToCustomer = l_customerID
+       AND A.cancelledAt IS NULL
+       AND (A.invoiceNumber LIKE searchPattern
+            OR A.grandTotal LIKE searchPattern
+            OR A.remarks LIKE searchPattern);
 
-            END;
-        ELSE
-			BEGIN
-
-                SELECT 
-                    COUNT(A.id) AS 'totalRecords' 
-                FROM invoices A 
-                WHERE 
-                    ( A.totalAmountWithGst LIKE searchPattern OR
-                    A.remarks LIKE searchPattern ) AND
-                    A.soldToCustomer = l_customerID AND
-				    A.cancelledAt IS NULL; 
-
-				SELECT 
-					A.id as 'orderId',
-					COUNT(B.ProductId) as 'numberOfProducts',
-                    A.totalAmountWithGst,
-                    A.createdAt as 'orderDate',
-                    A.remarks,
-                    A.cancelledAt,
-                    A.isPaymentDone as 'paymentStatus'
-                FROM invoices A
-                INNER JOIN invoice_products_mappings B
-					ON A.id = B.InvoiceId
-                INNER JOIN customers C
-					ON C.Id = A.soldToCustomer
-                WHERE C.customerGuid = p_customerGuid 
-                AND A.cancelledAt IS NULL
-                GROUP BY A.id
-                HAVING 
-                    A.totalAmountWithGst LIKE searchPattern OR
-                    A.remarks LIKE searchPattern
-                LIMIT itemsPerPage OFFSET startIndex;
-            END;
-	END IF;
-
+    SELECT
+      A.id           AS orderId,
+      A.invoiceGuid,
+      A.invoiceNumber,
+      (SELECT COUNT(*) FROM invoicelineitems B WHERE B.invoiceId = A.id) AS numberOfLineItems,
+      A.grandTotal,
+      A.createdAt AS orderDate,
+      A.remarks,
+      A.cancelledAt,
+      A.isPaymentDone AS paymentStatus
+    FROM invoices A
+    WHERE A.soldToCustomer = l_customerID
+      AND A.cancelledAt IS NULL
+      AND (A.invoiceNumber LIKE searchPattern
+           OR A.grandTotal LIKE searchPattern
+           OR A.remarks LIKE searchPattern)
+    ORDER BY A.createdAt DESC
+    LIMIT itemsPerPage OFFSET startIndex;
+  END IF;
 END$$
-
 DELIMITER ;
-;
-
