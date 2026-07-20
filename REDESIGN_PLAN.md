@@ -586,7 +586,74 @@ All render without runtime errors; they simply pick up the bootstrap-compat toke
 
 ### 10.2 Workstream H — status
 
-_TBD_
+**Landed 2026-07-20, submodule commits on `redesign/ui-modernization`: `2fcbf51` (People — customers list + view + form), `f36ea53` (Stock — inventory grid + view + form).** Parent-repo submodule pointer not bumped (per rules). No parent `package.json` / `angular.json` edits.
+
+**People (customers) redesign — files rewritten:**
+
+- `client/app/modules/customers/components/customers-page/customers-page.component.{ts,html,scss}` — new "People" list with page-title header (Instrument Serif "People" + tabular count), toolbar with debounced search, hand-rolled table (avatar + name/phone, city, remarks-or-email fallback, hover-reveal actions), integrated `SimplePaginator` when `totalRecords > pageSize`. Bootstrap grid + `DataTableComponent` dependency removed.
+- `client/app/modules/customers/components/view-details/view-details.component.{ts,html,scss}` — two-column `detail-shell` (left: additional details block + order history list; right sticky sidebar: total-spent kpi + orders/last-visit kpi row + notes card + collapsible photo editor). Order history uses inline status chips (paid/pending/cancelled) with amount + arrow. Edit mode swaps the additional-details section for a sectioned form; GSTIN pattern-validated. Back arrow + call/edit/delete icons in the header. Bootstrap `container-xl`/`row`/`col-*` gone.
+- `client/app/modules/customers/components/add-customer-form/add-customer-form.component.{ts,html,scss}` — overlay panel kept, restyled into three grouped sections (Identity, Location, Tax details). State dropdown auto-fills state code from `INDIAN_STATES`. Photo upload deferred to a follow-up (avatars in list use initials); the existing `ImageUploadComponent` is still available for the view-details editor.
+
+**Stock (inventory) redesign — files rewritten:**
+
+- `client/app/modules/inventory/components/inventory-page/inventory-page.component.{ts,html,scss}` — reduced to a wrapper that hydrates gold/silver stock tiles from `get_total_stock_of_master_category` and forwards to `AvailableProductsComponent`. `InfoCardComponent` usage retired.
+- `client/app/modules/inventory/components/available-products/available-products.component.{ts,html,scss}` — full "Stock" screen. Grid ↔ table density toggle (top-right icon pair, persisted via `localStorage['inventory.viewMode']`). Filter chip row (purity multi-select from `purities` master, master-category multi-select, in-stock-only toggle, HUID-present toggle, plus a "Clear all" chip when any filter is active). Grid uses portrait 4:5 media with purity chip overlay + sold badge + hover-lift + admin cost overlay. Table columns: image thumb, SKU, HUID chip, purity chip, product name, net wt, tag price (tabular-nums, right-aligned, with cost line below for admins), actions.
+- `client/app/modules/inventory/components/available-products/components/add-product-form/add-product-form.component.{ts,html,scss}` — overlay panel replacing the Bootstrap-modal-with-`data-bs-toggle` pattern. Sections: Identity (SKU + autogen button, HUID, description), Category (master/sub/product), Metal & weight (purity dropdown, HSN, gross/net/stone weight with auto-computed stone weight when user leaves it blank, stone charges), Making & wastage (three-way pill radio for making mode), Pricing (cost admin-only + tag + computed callout at today's rate).
+- `client/app/modules/inventory/components/view-product-details/view-product-details.component.{ts,html,scss}` — two-column detail-shell. Left: header with purity chip + SKU + HUID chips, image hero + specifications grid, pricing block with cost (admin) + tag + computed floor price at today's rate. Right sidebar: status chip (in stock / sold), serif tag-price kpi, days-in-stock kpi (from `createdAt`), quick actions (mark-as-sold + print-tag stubs), photo editor card.
+- `client/app/modules/inventory/components/product-details-form/product-details-form.component.{ts,html,scss}` — same sectioning as add-product-form; used inline in the view page's edit mode. Reuses the making-mode pill radios + computed preview.
+
+**Grid ↔ table density toggle implementation notes:**
+
+- Toggle lives in the list toolbar next to search, rendered as a two-button segmented control (`view-toggle`/`view-toggle__btn`) with amber active state.
+- Selected mode persists to `localStorage['inventory.viewMode']` on click; read at `ngOnInit` and defaults to `grid` if absent or invalid.
+- Grid uses `grid-template-columns: repeat(auto-fill, minmax(220px, 1fr))` — yields ~5-6 per row on 1440px+ and gracefully drops to 2 on tablet, 1 on phone. Cards are the primary click target; icon buttons in the top-right corner are hover-revealed to avoid competing with the card click.
+- Table uses `grid-template-columns` (not a real `<table>`) so responsive stacking on `< 900px` is a straight `grid-template-areas` swap.
+
+**Admin cost overlay wiring:**
+
+- `AvailableProductsComponent`, `ViewProductDetailsComponent`, `AddProductFormComponent`, `ProductDetailsFormComponent` all read `storeService.get('authData')` in `ngOnInit` and set `isAdmin = auth?.type === 'admin'`.
+- Grid card + table row render `product.costPrice` in muted 11px "Cost ₹X" only when `isAdmin && costPrice != null`. View page shows cost as a full field in the pricing section behind the same gate. Add + edit forms hide the cost input entirely for non-admins.
+
+**Empty states shipped:**
+
+| Screen | Trigger | Icon + copy |
+|---|---|---|
+| People list | No customers ever | `lucideUsers` 32px + "No customers yet" + primary CTA "Add your first customer" |
+| People list | Search yields nothing | `lucideSearch` + `No customers match "<query>"` + ghost CTA "Clear search" |
+| Customer view | Zero orders on file | `lucideInbox` 32px + "No orders yet" + secondary line |
+| Stock list | No products ever | `lucidePackage` 32px + "No products yet" + primary CTA "Add your first product" |
+| Stock list | Filters + search yield nothing | `lucideSearch` + "No products match these filters" + ghost CTA "Clear filters" |
+| Loading (both lists) | Fetch in flight, no cached rows | `lucideLoader` spin + "Loading..." |
+
+**Bootstrap classes left behind:** none in H's file set. All `container-xl`/`row`/`col-*`/`.card`/`.form-control`/`form-select`/`btn-primary`/`btn-danger`/`data-bs-toggle` references gone from customers/** and inventory/**.
+
+**H shared recipes added to `styles.scss` (Workstream H section at the bottom):**
+
+- `.chip`, `.chip-toggle`, `.chip-active`, `.chip-icon` — filter chip primitives used by Stock filter row and future toolbars.
+- `.purity-chip` — the small "22K • 916" style tag used on product cards + view header + order history rows.
+- `.detail-shell`, `.detail-side` — two-column layout (60/40 desktop, stacked on narrow) with sticky right sidebar; used by customer view + product view.
+- `.detail-section`, `.detail-section__title`, `.detail-grid`, `.detail-field__label`, `.detail-field__value` — grouped label/value pairs for read-only detail blocks.
+- `.data-row`, `.list-toolbar`, `.page-title`, `.page-title__group`, `.page-title__heading`, `.page-title__count` — shared list-page anatomy.
+- `.avatar` variants (`--sm`/`--md`/`--lg`/`--xl`) — circular initials/thumbnail avatar used across People + editable cards.
+- `.icon-btn` and `.icon-btn--danger` — 32px square icon-only button (used in row action columns + view page headers).
+- `.form-section`, `.form-section__title`, `.form-grid`, `.form-grid--3`, `.form-grid__full`, `.field-label`, `.field-error`, `.field-help` — sectioned form primitives shared by customer + product forms.
+- `.radio-pills`, `.radio-pill` — pill-row radio primitive used by gender (customer form) and making mode (product form).
+
+**Verification at close of H:**
+
+- `ng build --configuration=development` — PASS (~8.3s). No new warnings; the remaining `NG8107` optional-chain notes in `PrintInvoiceComponent` template are pre-existing (E's rebuild).
+- `ng test --watch=false --browsers=ChromeHeadless` — **15/15 SUCCESS** (7 baseline + 8 amount-in-words specs). No new test suites added by H.
+- `npm start` walkthrough not run interactively this pass; build-green + unit-test-green + no cross-workstream file touches was the gate.
+
+**Deferred / follow-ups (Phase 2 or later, non-blocking):**
+
+1. **Real customer photo upload from the add-customer overlay.** The overlay presently drops the photo widget in favor of a name-initials avatar in the list; view-details already has an inline photo editor. Wiring the add form's photo upload back in is a small follow-up.
+2. **Photo attachments in the People list.** Rows use initials avatars today; hydrating actual `imagePath` per row would need `getAllCustomers(fetchImage=true, ...)` and a per-row image path resolution. Non-trivial for pagination; deferred.
+3. **Barcode-tag print** for products (right-sidebar quick action currently toasts "Phase 2"). Needs the label-print template + printer selection.
+4. **Mark-as-sold** direct from the product view (right-sidebar quick action currently toasts). The correct path in v1 is to add the SKU to a cart via the Sell workflow; a direct-sell shortcut is Phase 2.
+5. **Real product images in the grid** — placeholder tile shows when no `imagePath` is on file. No change needed to the schema; just seeded data lacks images.
+6. **Batch import / bulk actions** on the People + Stock lists. Deferred to P3 CSV migration workstream.
+
 
 ### 10.3 Workstream I — status
 
