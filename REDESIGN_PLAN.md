@@ -1820,3 +1820,80 @@ component .ts files) plus `client/locale/messages.{hi,gu,mr}.xlf` and
 `client/locale/messages.xlf` (extract source). Helper script at
 `client/locale/_build-translations.js`. Parent-repo touched
 `REDESIGN_PLAN.md` only.
+
+---
+
+## 15. Phase 3 close — reconciliation and exit state
+
+**Reconciled 2026-07-21.** Submodule pointer bumped to include Workstreams Q / S / T on `redesign/ui-modernization` (P landed parent-only; R landed submodule-only earlier and its pointer was already covered when Q + S committed on top of it).
+
+**Commit trail (parent — `integration/modernization-2026-07-17`):**
+
+- `387b0e4` — P3 kickoff plan (section 14).
+- `da19cdf` / `1c52a04` / `87491ff` / `ce24420` / `3ccc572` — Workstream P: schema+seed, SPs, Electron modules, TS services, Angular i18n build config.
+- `cdf18f2` — Workstream Q status doc.
+- `09912be` — Workstream R status doc.
+- `a6c8753` — Workstream S status doc + Karma `@angular/localize/init` polyfill fix.
+- `deeec23` — Workstream T status doc.
+- Phase 3 close commit (this reconciliation) bumps the submodule pointer.
+
+**Submodule commits landed (`redesign/ui-modernization`):**
+
+- Workstream Q: `bd6f6a6` + `7a17b9f` (command palette + shell mount).
+- Workstream R: `client/app/shared/utils/csv-import.ts` + `tally-xml.ts` + specs, `Migration/migration.service.ts`, settings Migration tab, toolbar buttons, Tally XML report exporters — 5 commits.
+- Workstream P placeholder: `5f60f04` — Angular i18n locale XLIFF skeletons.
+- Workstream S: `da1d34a` / `82afc47` / `135861e` / `9e4224f` (repair module + WhatsApp UI + customer view extensions + rail entry).
+- Workstream T: `dcef030` + `f589b08` (228 `i18n` attributes + hi/gu/mr targets populated).
+
+**End-to-end gates on the reconciled tree:**
+
+- `ng test --watch=false --browsers=ChromeHeadless` — **32/32 SUCCESS**.
+- `ng build --configuration=development` — PASS (12.0s). English default bundle.
+- `ng build --configuration=hi` — PASS (15.7s). Output at `dist/hi/`.
+- `ng build --configuration=gu` — PASS (16.0s). Output at `dist/gu/`.
+- `ng build --configuration=mr` — PASS (18.6s). Output at `dist/mr/`.
+- Backend / docker rebuild — verified during Workstream P close (green, 15 new SPs smoke-tested, RBAC guard on `delete_repair_ticket` raises SIGNAL 45000 as expected, IBJA parser round-trips test HTML fixture).
+
+**Phase 3 exit state — what a small Indian jeweller can now do that they couldn't in Phase 2:**
+
+1. **Run any action in ~1 second via keyboard** — press `Ctrl+K` / `⌘K` anywhere, type "add cust" / "enroll scheme" / "lock rate" / "sell" / "reports", Enter. Rauno-breadcrumb sub-palettes for the three most common quick-adds. Never-close-the-shortcut-off, every palette action also exists as a visible button (NN/g accelerator rule).
+2. **Pull daily gold rates automatically twice a day** — 10:30 IST + 16:30 IST setTimeout scheduler in Electron main hits ibjarates.com, parses AM/PM rates for 999/995/916/750/585/silver_999, saves an audit snapshot, then upserts into `MetalRates`. Fallback: parse-failure and network-error paths still record snapshots for troubleshooting. Manual entry and `save_metal_rates` remain the source of truth if the toggle is off (default off — opt-in).
+3. **Take pieces in for repair and track them end-to-end** — receive → in_progress → ready → delivered (with settlement) → out the door. Custom item description + photo + weight + estimated charge. Optional karigar link so the ticket + karigar job stay in sync. Formatted ticket number `RAD/REP/2026/NNNNN`. Delete is admin-only via SIGNAL 45000 guard.
+4. **Migrate customer + product + rate data IN from a CSV** — column-mapping dropdowns, purity/making-mode normalizers accept messy source formats (`22K`, `916`, `gold-22k`, `$/g`, `PG`, `₹/g`), duplicate strategy (skip/update/abort), preview with issue highlighting, failed rows downloadable. **Migrate OUT via CSV too** — quick-export from Settings + toolbar buttons on the customers and inventory list pages + on the metal-rates settings tab. Cost column omitted for non-admin.
+5. **Hand the CA a Tally-ready XML for a date range** — Day-book Receipt vouchers per payment mode per day; Sales register Sales vouchers per invoice with CGST/SGST or IGST split as separate ledger entries; both wrapped in the standard `<ENVELOPE><IMPORTDATA>` shell. Configure ledger names in Tally before first import — caption reminds the user.
+6. **Send an invoice via WhatsApp** (code path) — button on order-details opens an inline dialog, pre-fills customer phone + template name (`invoice_ready`) + variables, calls the Meta Cloud API v20.0 template endpoint via the Electron main-process orchestrator, queues + sends + updates status. **Won't actually deliver messages** until Meta Business verification completes — 2-6 week external lead time. The friendly "WhatsApp is not configured" banner directs users to Settings → WhatsApp for setup.
+7. **Track every WhatsApp send** — activity tab in Settings shows the full log with status chips (queued/sent/delivered/read/failed) filterable by date and status. Per-customer + per-invoice history surfaces embedded in customer view + order-details.
+8. **Switch to Hindi, Gujarati, or Marathi** — 228 i18n IDs across the 13 templates a shop clerk sees every day (rail, dashboard, cart-builder, orders, forms, login). All three locales have every target populated (0 `needs-translation`). Language switch persists to localStorage and shows a restart instruction — Angular's compile-time i18n needs a separate bundle per locale, so `dist/hi`, `dist/gu`, `dist/mr` are all built and Electron main serves the appropriate `index.html` on next launch.
+
+**Recipe layer as of Phase 3 close:** ten labeled workstream blocks at the bottom of `styles.scss` — G / H / I / J / L / M / N / Q / R / S. Each block owned by its workstream; no cross-editing. T did not add recipes (i18n is templates-only).
+
+**Deferred / P3 followups (small, non-blocking):**
+
+- WhatsApp API token encryption at rest — currently plaintext in `ShopSettings`.
+- IBJA parser resilience — 3 regex shapes today; markup change silently degrades to `parse_failure`. Consider fixture-based smoke test.
+- Cron persistence across app restart — in-process setTimeout only. If app closes at 10:29 IST, AM fetch is skipped for that day.
+- `mysqldump` binary bundling for Windows so users don't need MySQL client tools on PATH.
+- Auditlog per-entity SP (`get_audit_log_by_entity`) — needed for the S repair-ticket detail's "Audit" block, currently skipped.
+- Repair receipt print (thermal-80mm) — stub with toast today.
+- Real Meta template-fetch — currently the WhatsApp settings tab hardcodes the four expected template names; a real integration would fetch approved templates from the Meta API on save.
+- Attachment PDF hosting for WhatsApp — Meta requires a public HTTPS URL; we don't have one. Path forward: bundle a small local HTTP server that Electron main exposes on `http://localhost:PORT/invoice/:guid.pdf` and serve via ngrok or a per-shop tunnel.
+- Print-invoice template i18n text — deferred; low-priority per the T spec.
+- Angular i18n plural forms (ICU) for count messages like "1 invoice" / "N invoices" — deferred.
+- Live language switching — Electron main-process locale-aware relaunch that serves `dist/<locale>/index.html` based on `localStorage` preference. Currently manual close-and-reopen.
+- Native-speaker QA of seeded hi/gu/mr translations.
+
+**Phase 3 wedge scorecard:**
+
+| Wedge | Status |
+|---|---|
+| Command palette (Ctrl+K) | Shipped end-to-end |
+| IBJA rate auto-fetch | Shipped, opt-in via ShopSettings |
+| Repair / job-ticket module | Shipped end-to-end |
+| Migration IN + OUT (CSV + Tally XML) | Shipped for customers / products / rates + day-book + sales register |
+| WhatsApp bill send | Code + settings shipped; awaits Meta verification (external, 2-6 wk) |
+| i18n (hi/gu/mr) scaffold | Shipped for top-228 phrases across 13 templates; expandable |
+| Android read-only companion | Deferred — Capacitor shell + sync design is a session on its own |
+
+**Product state:** Every wedge from the original positioning ("modern UI, keyboard-first" + "WhatsApp bill send built-in" + "HUID never paywalled" + "CSV migration IN and OUT") is either shipped or one external-dependency away from shipping. The Marg-style incumbent side-by-side demo is ready to run.
+
+**What ships in a v1 pilot:** Everything except WhatsApp real delivery (needs Meta green tick) and IBJA auto-fetch reliability (needs fixture-based regression). Both have opt-in toggles so pilots can run without them.
