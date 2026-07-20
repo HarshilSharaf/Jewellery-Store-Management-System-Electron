@@ -657,8 +657,155 @@ All render without runtime errors; they simply pick up the bootstrap-compat toke
 
 ### 10.3 Workstream I — status
 
-_TBD_
+**Landed 2026-07-20 on submodule branch `redesign/ui-modernization`.** Sell (order builder / cart) + Books (orders list, details, payments) + invoice preview chrome rebuilt end-to-end. Parent-repo submodule pointer not bumped (per rules). No parent `package.json` / `angular.json` edits.
+
+**Files rewritten (under `client/app/modules/orders/**`):**
+
+- `components/orders-page/orders-page.component.{ts,html,scss}` — Books list rebuilt as hand-rolled table with `page-title` header + status/date/text toolbar; `SimplePaginator` for pagination.
+- `components/order-details/order-details.component.{ts,html,scss}` — new 65/35 detail shell; header with serif invoice number + back arrow + action icons; "Bill to" block; totals card with amount-in-words; sticky right rail with KPI tiles + quick-actions list; cancelled-invoice banner.
+- `components/order-products-details/order-products-details.component.{ts,html,scss}` — line-items table (40px rows) with SKU/HUID/description column, purity + HSN chips, tabular-nums money columns, compact tax label (CGST+SGST or IGST driven by an `isInterState` input).
+- `components/order-payments/order-payments.component.{ts,html,scss}` — inline payments list + right-side slide-in panel form. Radio-pill mode selector (cash / cheque / online) with disabled/required ref-number logic wired to `paymentType.valueChanges`. ESC + backdrop close. Toast + refresh on save.
+- `components/prepare-order/prepare-order.component.{ts,html,scss}` — reduced to `<app-stepper>` wrapper (removed the Bootstrap `container-xl`/`row`/`col`/`card` chrome).
+- `components/prepare-order/components/stepper/stepper.component.{ts,html,scss}` — 3-step wizard (Select customer → Add items → Review & save) with pill-row stepper, `signal`-based state, per-step `canAdvance` guards, and a persistent `sell-wizard__foot` action bar (Back / Continue / Save).
+- `components/prepare-order/components/select-customer/select-customer.component.{ts,html,scss}` — customer picker rebuilt as card grid (avatar + name + city + phone + optional GSTIN) with search, "New customer" ghost CTA routing to `/customers/add-customer`, and `SimplePaginator`.
+- `components/prepare-order/components/cart-builder/cart-builder.component.{ts,html,scss}` — NEW. The money screen. 8/4 split: left column has product picker + line-item cards; right column has rate-lock card + totals panel (sticky).
+- `components/prepare-order/components/create-invoice/create-invoice.component.{ts,html,scss}` — repurposed as the Review step. Read-only customer summary + compact line-item table + full totals card + amount-in-words + primary "Save invoice" button. Save routes to `/orders` on success.
+- `components/print-invoice-preview/print-invoice-preview.component.{ts,html,scss}` — polished chrome only. Sticky top toolbar with back arrow, "Invoice preview" title, `radio-pill-row` A4/80mm variant toggle, primary "Print" button. Preview canvas center-aligned max-w-900px (A4) / 320px (80mm) with `shadow-lg` so it feels like paper against the ivory bg. Feeds `variantInput` into `<app-print-invoice>` (which E built) and hides the child's own toolbar. `@media print` hides the preview chrome + resets canvas to full page.
+
+**Shared component surface touched (still I territory — cart concerns only):**
+
+- `shared/components/cart-items/cart-items.component.{html,scss}` — restyled as bordered cards with 40px thumb + SKU + purity/HUID chips + tabular-nums net weight + `.icon-btn--danger` remove. Empty state kept illustration but restyled copy.
+- `shared/components/cart-side-bar/cart-side-bar.component.{ts,html,scss}` — token-driven slide-in from the right. Backdrop only renders when open. ESC key closes. Header uses serif title, footer has primary CTA "Go to Sell" + ghost Close.
+
+**Wizard flow implementation notes:**
+
+- `activeStep` + `selectedCustomer` are signals on `StepperComponent`. `computed` guards (`canAdvanceFromCustomer`, `canAdvanceFromItems`) drive both the Continue button `[disabled]` and the `goTo(index)` step-jump guard.
+- Customer selection is persisted through the wizard via the parent stepper signal (not a service) — no cross-tab persistence, which is intentional (a wizard doesn't survive full reload).
+- Items are persisted in `CartService` (localStorage), so a mid-shift refresh preserves the cart. `CartBuilderComponent` re-hydrates from the service on `ngOnInit`.
+- Step transitions are just `@switch` template branches; no route changes, no animation library. Foot buttons swap per step. Back-nav is a signal decrement (no browser history rewrite).
+
+**Product picker typeahead + keyboard shortcuts:**
+
+- Search field debounced through Angular's `valueChanges`. Filters `allProducts` in-memory (loaded once from `get_all_products(500, 1, '', 0)` — excludes already-sold + already-in-cart), returning top 6 matches. Match rule: SKU / HUID / product description / master + sub category all case-insensitive.
+- Result panel floats over the field, mouse-hover updates `pickerIndex` for keyboard-mouse consistency.
+- Keys handled inside search field: `ArrowDown` / `ArrowUp` cycle `pickerIndex`, `Enter` calls `addProduct(items[pickerIndex])`, `Escape` collapses.
+- Global shortcuts (registered via `@HostListener('document:keydown')` on `CartBuilderComponent`): `/` focuses the search input (blocked when focus is already inside an INPUT/TEXTAREA/SELECT); `Alt+D` jumps to the discount field on the last-added line and selects its contents (uses `data-discount-key` on the input).
+- After adding a product: search clears, refocuses, and previous typeahead panel collapses.
+
+**Line-item editing UX:**
+
+- Each item in the cart is a `<article class="line">` card with a 40px thumb + SKU + purity/HUID chips + delete `.icon-btn--danger`.
+- 4-column grid inside the card exposes editable Net weight, Rate/g (readonly — driven by rate lock), Making mode (native select), Making value, Wastage %, Discount. Rate/g stays readonly to preserve the "rate lock" contract; the `Relock rate` button on the totals column mass-refreshes rates and lines in place.
+- Foot strip: metal / making / wastage / (stone if > 0) totals inline (muted, small) with the line total right-aligned bold.
+- Live-recalc: every field write calls `recalcAll()` which pipes through the shared `computeCartTotals(...)` engine, then mirrors computed values back onto view-model lines so display fields don't lag inputs.
+
+**Totals card fields shipped:**
+
+- Metal value (derived: `subTotalTaxable - making - wastage - stone + discount`).
+- Making, Wastage, Stone (Stone hidden when zero), Subtotal (taxable), Discount (subtractive, hidden when zero), Old-gold credit as a stub row: value forced to `− ₹0.00` + inline muted `P2 — coming soon` badge; no old-gold entry UI.
+- Tax split: CGST + SGST for intra-state, IGST for inter-state. Driven by `ShopSettings.stateCode` vs `customer.stateCode`.
+- Round-off (hidden when 0), then serif `Grand total` (`.money-lg`).
+- Rate-lock card (above totals): renders one row per purity present in the cart (label + tabular-nums rate/g), plus a "Locked at HH:MM" line under. `Refresh` icon-button fetches `get_current_metal_rates` again and re-applies to every line's `ratePerGram`.
+- Save button lives on the Review step (not on the cart step), so users cannot accidentally save without confirming totals.
+
+**Recipes added to `styles.scss` (Workstream I section, appended at bottom):**
+
+- `.status-chip` + `--paid` / `--unpaid` / `--cancelled` variants — used by Books row status column, order-details right-rail status tile.
+- `.radio-pill-row` — horizontal segmented control wrapper. Composes with H's existing `.radio-pill` recipe; used by Books status filter, invoice preview variant toggle, and payments panel mode selector.
+- `.money`, `.money-lg`, `.money-xl` — money classes. `.money` for compact table cells (tabular-nums + medium weight), `.money-lg` (1.5rem serif) for card grand totals, `.money-xl` (2.25rem serif) reserved for a future big-money display.
+- H's earlier recipes (`.detail-shell`, `.detail-side`, `.detail-section`, `.data-row`, `.list-toolbar`, `.page-title`, `.avatar`, `.icon-btn`, `.form-section`, `.form-grid`, `.field-label`, `.radio-pill`, `.purity-chip`) are reused across Books + Sell + payments; no duplication.
+
+**Old-gold P2 stub location:**
+
+- `client/app/modules/orders/components/prepare-order/components/cart-builder/cart-builder.component.html` — the totals panel row with `class="totals-panel__row--stub"`. Explicitly forces `− ₹0.00` and shows a muted `P2 — coming soon` badge inline. `computeCartTotals(..., { oldGoldCreditAmount: 0, ... })` — old-gold credit stays 0 for save. Old-gold entry UI is NOT shipped in this pass (P2 scope per the plan).
+
+**Cart-sidebar status:**
+
+- Retained; restyled with token palette + Lucide `X` close + serif title + `.icon-btn` / `.hlm-btn-*` primitives. Slide-in animation preserved. ESC-to-close added. Backdrop only renders when open (was permanently in the DOM before). Footer CTA routes to `/orders/prepare-order` for the counter-clerk flow.
+
+**Print preview polish (before → after):**
+
+- Before: single sticky toolbar with a back button, title, and empty right spacer; A4/80mm toggle + Print button lived inside the print-invoice child.
+- After: single top toolbar hosts back arrow (`.icon-btn` with `lucideArrowLeft`), serif "Invoice preview" title, spacer, `radio-pill-row` A4/80mm variant toggle, and a primary `hlm-btn-primary` Print button. Toolbar is sticky-to-top with token bg + border-bottom. Child's own toolbar is hidden (`[showToolbar]="false"`) and the preview page (`.preview-page`) is rendered inside a `max-w-900px` (A4) / `max-w-320px` (80mm) box with `shadow-lg` on the warm-ivory backdrop. `@media print` gates all toolbar chrome, resets the canvas to full-bleed for printer output, and the child's `@page` rules still control paper size.
+
+**Test + build result:**
+
+- `ng build --configuration=development` — PASS. No new errors introduced; remaining warnings are the pre-existing `NG8107` optional-chain notes in `PrintInvoiceComponent` template (E's rebuild, not I's territory).
+- `ng test --watch=false --browsers=ChromeHeadless` — **15/15 SUCCESS** (7 baseline + 8 amount-in-words specs). No new test suites added by I.
+- Live-app walkthrough via `npm start` not run interactively this pass; build-green + unit-test-green + no cross-workstream file touches was the gate.
+
+**Deferred / follow-ups (documented, not blocking):**
+
+1. **Inline "create new customer" during Sell step 1.** Today the "New customer" ghost CTA routes out to `/customers/add-customer` and expects the user to return to the wizard. H's `add-customer-form` is an overlay panel; wiring it inline via a shared service or a component reference is a small follow-up but requires cross-workstream coordination with H's overlay API.
+2. **Amount paid at save time.** The old create-invoice let users record a payment inline as part of save; the new Review step drops that in favor of always creating the invoice as unpaid, then routing to `/orders` where the counter clerk can record payment through the panel on order-details. Saves round-tripping and keeps the wizard focused on line items. If piloting shops want single-click "save + full-cash payment", that's a next-pass toggle.
+3. **HUID / barcode scanner input on the product picker.** Not shipped (P2 scope). The search field accepts typed HUIDs today; a keyboard-wedge scanner will "just work" as long as it types-and-submits, but no explicit scanner UX has been designed.
+4. **`stub`-labelled quick actions on order-details right rail.** Duplicate invoice + WhatsApp send + "Mark as paid" from the header are toast stubs (P3 for WhatsApp; duplicate is a P2 clean-up).
+5. **Backend proc for `totalLineItems` on `get_all_orders`.** Books list currently computes item count client-side from the returned `lineItems` array. If the SP starts returning a `totalLineItems` scalar, the fallback keeps rendering; a small SP tweak would let large-cart shops skip the array hydration.
+6. **Bootstrap-compat class removal on order-details.** Fully cleaned; the plan flagged this template as still Bootstrap-flavoured — it isn't any more after this pass. Row can be struck from section 10.1's "Bootstrap-grid fallout" list.
 
 ### 10.4 Workstream J — status
 
-_TBD_
+**Landed 2026-07-20, submodule commits on `redesign/ui-modernization`: `d862062` (catalog), `bfc688d` (settings polish), `b4141ee` (profile), `9f68d57` (login polish). J's shared recipes for `styles.scss` (`.tabs-strip`, `.tab-item`, `.section-heading`, `.field-grid`) were rolled into H's earlier `2fcbf51` commit alongside its own recipe block — the section is clearly labelled `// Workstream J shared recipes (Catalog + admin)` at the bottom of `styles.scss`.** Parent-repo submodule pointer not bumped (per rules).
+
+**Catalog (Categories) redesign — files rewritten:**
+
+- `client/app/modules/categories/categories-routing.config.ts` — three sibling routes `/categories/master`, `/categories/product`, `/categories/sub` now render the same `CategoriesPageComponent`; the active tab is bound to `route.data.tab`. `/categories` redirects to `/categories/master`.
+- `client/app/modules/categories/components/categories-page/categories-page.component.{ts,html,scss}` — full rewrite. Page header (Instrument Serif "Catalog" + current-tab heading + count in tabular-nums + right-aligned "Add category" primary button) → tab strip (`Master • Product • Sub` with Lucide icons `lucideCoins` / `lucideGem` / `lucideSparkles`) → responsive card grid (6/5/4/3/2 columns from 1400px down to 640px). Each card = 40px accent-tinted icon tile + name (14px medium) + optional description (2-line clamp, muted) + created-at meta (11px subtle tabular-nums). Cards hover-raise via `box-shadow` + subtle border accent. Empty state = `lucideTags` 32px + "No categories yet" + CTA button. Loading state = spinner row.
+- `client/app/modules/categories/components/add-category-dialog/add-category-dialog.component.{ts,html,scss}` — new. Single overlay-panel dialog that handles all three category kinds via an `@Input() tab: 'master' | 'product' | 'sub'`. Uses the same `.modal-overlay` / `.modal-panel` recipe pattern as `add-customer-form` (Workstream F): escape closes, overlay-click closes, animated rise-in on open. Fields: name (required, autofocused, placeholder switches per tab) + description (textarea). Icon slug omitted this pass — one icon per tab is picked by the parent (`.catalog-card__icon` renders `currentTabMeta.icon`); a per-category icon slug is a follow-up if pilots ever want per-card distinctions inside a tab.
+- **Deleted (orphaned by the unified page):** the entire `master-categories/`, `product-categories/`, `sub-categories/` component subtrees under `client/app/modules/categories/components/` — 30 files. Their services (`MasterCategoryService`, `SubCategoryService`, `ProductCategoryService`) are retained inside `.../services/` because they're consumed by `dashboard/components/main/main.component.ts` and `inventory/components/inventory-page/inventory-page.component.ts`.
+
+**Admin (Settings) polish — files touched:**
+
+- `client/app/modules/settings/components/settings-page/settings-page.component.{ts,html,scss}` — visual polish only, no SP changes. Tab bar swapped from a left-column vertical rail to the top-anchored horizontal segmented control (`.tabs-strip` + `.tab-item.is-active` → 2px amber underline + accent color). Shop identity form regrouped into four `.form-section` blocks with `.section-heading` labels: **Identity** (name / phone / email), **Location** (address × 2 / city / pincode / state / state code), **Tax details** (GSTIN / PAN), **Branding** (logo). Every tab uses `.field-grid` (Tailwind grid-cols-2 collapsing to 1 under 720px) — Bootstrap grid gone from the settings tree. Metal rates rows condensed to `[chip - AM input - PM input - copy-per-row icon-btn]` inside a single-column stacked grid; chip colored per metal type via `purityChipClass()` (gold amber / silver cool grey / platinum cool violet — swap key checks label for `silver`/`plat`/`gold` and falls back to gold for gold-fineness codes like `999`/`916`/`750`/`22K`/`18K`/`14K`). Panel titles use Instrument Serif; back button moved into topbar right (with `lucideArrowLeft` icon).
+
+**Profile redesign — files touched:**
+
+- `client/app/modules/profile/components/profile-page/profile-page.component.{ts,html,scss}` — full rewrite. Two-column shell using H's `.detail-shell` recipe (span 3 : span 1). Left column: hero row (`.avatar --xl` 96px + name in 2rem Instrument Serif + role chip + email + inline photo-action buttons that appear when a new photo is pending) → Account section (`.form-section` with .section-heading "Account", `.field-grid` username/email/role-readonly/created-readonly) → Change-password section (current / new / confirm password inputs, match + min-length validation, save via `AuthService.hashPassword` → `UserService.updateUserDetails`, existing hash path preserved). Right sticky sidebar: two `.kpi-mini` tiles ("Invoices created" placeholder em-dash with hint that reports land in Phase 2, "Last login" via `formatDate(last_login_date)`) + full-width Sign-out button firing `AuthService.logout()`.
+- Photo-editing flow: reuses `ImageUploadComponent` (kept in a visually-hidden `.hidden-uploader` wrapper so its `handleInputChange` + FileReader chain still flows through). A visible pencil badge on the avatar triggers a hidden `<input type="file">` that pipes into the component's method; when a new photo is queued, "Save photo" + "Cancel" buttons appear inline in the hero. If no pending photo but an existing one exists, "Remove photo" is offered. Backend flow (`getUserImage`, `updateUserImage`, `deleteUserImage`, `FileSystemService.updateUserImage`) unchanged.
+
+**Login polish — files touched:**
+
+- `client/app/modules/login/components/login.component.{html,scss}` — brand mark tightened: replaced `logo.png` + generic "Jewellery Store / Management" wordmark with a 40px amber circle showing an Instrument Serif "R" monogram + Instrument Serif "Radiance / Jewellers" wordmark below. Matches the AppShell rail brand mark from Workstream G so login + shell read as one product. Two-panel warm-ivory grid, theme toggle, amber CTA, `hlm-input` inputs — all verified intact after G's Lightning Admin rip; no regressions found in the grid columns, no Bootstrap classes to migrate.
+
+**Tab strip implementation notes:**
+
+- `.tabs-strip` is a horizontal flex with a bottom border-subtle rail. Individual `.tab-item` buttons overlap the strip's border via `margin-bottom: -1px` so the active 2px underline sits flush. Icons + labels align via `inline-flex`. Overflow scrolls horizontally on narrow screens but chrome is hidden (`scrollbar-width: none` + `::-webkit-scrollbar { display: none }`).
+- Active state = `color: var(--color-accent-fg)` + amber `border-bottom-color` + `font-weight: 600`. Dark theme swaps the color to `var(--color-accent)` for adequate contrast against the panel background.
+- Consumed today by Catalog (`Master • Product • Sub`) and Settings (7 tabs: Shop identity / Tax & invoice / Metal rates / Print & hardware / Backup / Users & permissions / Database). Reusable elsewhere.
+
+**Metal rates + shop identity grid summary:**
+
+- Metal rates: `.rates-grid` is a single-column stack of `.rate-row` cards. Each row is a 4-column grid `140px 1fr 1fr 40px` collapsing to 1 column under 720px. Purity chip on the left uses the accent-scale + `chip--gold` / `--silver` / `--platinum` variants (defined in `settings-page.component.scss`). Rate inputs are `hlm-input tabular-nums`. The 40px trailing cell holds a copy-per-row `lucideCopy` icon button. Global "Copy all AM → PM" preserved above the grid.
+- Shop identity: four `.form-section` groups with `.section-heading` uppercase-muted headers, each internally using `.field-grid` (2-col). Full-width fields use `.form-grid__full` (H recipe). Save button lives inside a `.form-actions` row at the end; disabled unless the form is dirty + valid.
+
+**Profile page layout:**
+
+- Grid = `minmax(0, 3fr) minmax(0, 1fr)` collapsing to a single column under 1100px.
+- Left column: `.profile-main` panel with hero row (border-bottom divider) then two `.form-section` blocks (Account, Change password).
+- Right column: sticky (via H's `.detail-side` recipe) `.kpi-mini` tiles + sign-out button. KPI recipe: 11px muted uppercase label with prefix Lucide icon + 1.5rem Instrument Serif value + optional 11px muted hint.
+
+**Recipes added to `styles.scss` (bottom, labelled J block):**
+
+```
+.tabs-strip { horizontal flex + bottom border rail, chrome-less overflow scroll }
+.tab-item { muted default; hover raise; .is-active = amber accent + 2px underline; dark theme swap }
+.section-heading { 11px semibold uppercase tracking-wider text-fg-muted }
+.field-grid { grid-cols-2 collapsing to grid-cols-1 under 720px, 16/24 gap }
+```
+
+Rolled into H's 2fcbf51 commit (which added its own H-block at the same time), clearly delimited by the `// Workstream J shared recipes (Catalog + admin)` comment banner at the bottom of the file. No pre-existing rules were touched; no other workstream's block was modified.
+
+**Test + build result:**
+
+- `ng test --watch=false --browsers=ChromeHeadless` — **15/15 SUCCESS** (7 baseline + 8 amount-in-words specs from E).
+- `ng build --configuration=development` — PASS. No new errors; pre-existing NG8107 optional-chain style warnings in Print-invoice / Create-invoice / Add-product-form templates remain (cosmetic, not J's territory).
+- Live-app walkthrough via `npm start` not exercised end-to-end this pass; build+test-green + code-only verification.
+
+**Anything deferred:**
+
+1. **Per-card usage counts on Catalog.** The spec asked for `22 products` chip; today's SPs (`get_master_categories` / `get_sub_categories` / `get_product_categories`) return name + description + timestamps only, no join count. A per-category `productCount` scalar on those SPs (WS A follow-up) would light up an extra `.catalog-card__meta` line without any client-side work.
+2. **Per-card edit / delete hover actions.** Card hovers raise but don't reveal pencil / trash icons yet. `update_*` and `delete_*` SPs do not exist for categories; adding them is an A-scope follow-up. Add UI hooks alongside.
+3. **Per-category icon slug.** Add-form currently only takes name + description; a `iconSlug` field + a matching column in each `Categories.*` table would let each card pick its own Lucide icon rather than defaulting to the tab-wide icon. Small A-scope schema change.
+4. **Real user CRUD + backup + hardware config in Settings.** Explicitly out of scope per the J rules — those remain stubs from E's pass. No SPs added.
+5. **Profile invoices-created KPI.** Left as em-dash placeholder with hint text; a `get_invoices_created_by_user(uid)` SP (or a reuse of the Books list filter) would populate it. Follow-up for the Reports pass in Phase 2.
+6. **Legacy master/sub/product wrapper components deleted.** 30 files removed under `client/app/modules/categories/components/{master,sub,product}-categories/` — their services were preserved. No external consumer referenced the wrappers or the old Bootstrap-modal forms.
