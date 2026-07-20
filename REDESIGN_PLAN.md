@@ -409,3 +409,58 @@ Deferred out of C:
 - **`_bootstrap-compat.scss`** — pre-existing NG8107 optional-chain warnings in Add-product-form / Create-invoice / Print-invoice templates. Cosmetic. Not F's territory.
 - **`animate.css` migration to `angular.json`** — deferred, requires parent-repo write.
 - **`@angular/material` + `@fortawesome/fontawesome-free` npm packages** — safe to drop from parent `package.json` now that no consumers remain in `client/app`. Flagged for a separate parent-repo commit.
+
+---
+
+## 9. Phase 1 truly closed — Workstream E + F reconciliation
+
+**Reconciled 2026-07-20.** Submodule pointer bumped to include E's 4 commits + F's 7 commits on `redesign/ui-modernization`. Parent-repo package/CSS cleanup landed alongside.
+
+**Parent-repo cleanups landed at reconciliation:**
+
+- Dropped `@angular/material@^19.2.0` and `@fortawesome/fontawesome-free@^7.3.1` from `package.json` (zero consumers per F's grep verification — only a doc comment reference in `styles.scss` remained).
+- Removed the `./node_modules/@fortawesome/fontawesome-free/css/all.min.css` entry from `angular.json` `build.options.styles` array (it was the only lingering consumer and would have broken the build after uninstall).
+- `@angular/cdk` retained — Spartan/brain declares it as a peer.
+
+**End-to-end gates on the reconciled tree:**
+
+- `ng test --watch=false --browsers=ChromeHeadless` — **15/15 SUCCESS** (7 baseline + 8 `numberToIndianRupees` cases).
+- `ng build --configuration=development` — PASS (6.4s). Remaining warnings are pre-existing `NG8107` optional-chain template style notes in a few components (Add-product form, Create-invoice, Print-invoice, dashboard main) — cosmetic, unchanged from baseline.
+- Backend / DB — unchanged since Workstream A close; still runs green.
+
+**Phase 1 exit state — what a small Indian jeweller can now do with this app:**
+
+1. Log in (dark mode auto-honored).
+2. See a dashboard with revenue chart, KPI tiles with `tnum`-aligned deltas, top-products list, live-rate card driven by real `MetalRates` data.
+3. Edit today's AM/PM rates for 999/916/750 via a navbar pill in seconds, or the full editor in Settings for all six purities.
+4. Configure shop identity (name, address, state, GSTIN with pattern validation, phone, email, logo) that then flows into every invoice.
+5. Manage customers with GSTIN, PAN, remarks, credit balance (read-only for now).
+6. Manage inventory with SKU, HUID, purity, gross/net/stone weight, three making-charge modes (flat/perGram/percent), wastage%, cost + tag price, category triple.
+7. Build a cart that locks today's rate on open, computes metal + wastage + making + stones − discount per line, applies per-line GST (CGST+SGST intra / IGST inter driven by state comparison), saves through `save_order` to produce a formatted `RAD/2026/NNNNN` invoice number.
+8. View any invoice with full per-line breakdown, record partial payments with UPI/cheque ref numbers, cancel with a stamped reason.
+9. Print the invoice as A4 GST (HSN 7113, CGST/SGST split, amount-in-words via `numberToIndianRupees`, e-invoice QR placeholder) or 80mm thermal receipt via a toolbar toggle.
+10. Everything is offline-first Electron, no cloud sync, no license-server dependency.
+
+**Design-system exit state:**
+
+- Zero Angular Material components anywhere in the app.
+- Zero FontAwesome usages anywhere in the app (only doc-comment references).
+- Zero Google Fonts CDN references — all fonts self-hosted WOFF2.
+- Sass entry point migrated off legacy `@import` to `@use` with proper namespacing.
+- Tailwind + Spartan/brain (alpha.563, pinned for Angular 19) + ng-icons/Lucide + Radix Colors tokens + Inter/Hind/Instrument Serif form the entire visual surface.
+- Dark mode + light mode both first-class; theme preference persisted, OS-preference-respecting on first visit.
+
+**What genuinely blocks a pilot store today (P2 territory, not Phase 1):**
+
+- No HUID/barcode scanner input path (the current entry is manual).
+- No weighing-scale RS-232/USB-HID integration.
+- No old-gold exchange line on cart (schema is ready, UI is not).
+- No saving-scheme module (schema stub exists).
+- No karigar job-work module (schema stub exists).
+- No reports (day-book, sales register, stock by purity, GSTR-1 JSON).
+- No RBAC route guards or proc-level checks (admin `type` is still display-only).
+- No backup/restore (UI stub exists; no IPC / mysqldump wiring).
+
+These are Phase 2. Their gating features and the corresponding schema stubs from Phase 1 are aligned; Phase 2 is now unblocked.
+
+**Not committed / not touched (all correctly out of scope):** IBJA rate auto-fetch (P3), WhatsApp Business API (P3, 2-6 week lead time on Meta verification), CSV/Tally XML migration (P3), Hindi/Gujarati/Marathi i18n (P3), Android companion (P3), `⌘K` command palette (P3), repair/job-ticket module (P3).

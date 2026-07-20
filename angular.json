@@ -37,7 +37,6 @@
             ],
             "styles": [
               "./node_modules/animate.css/animate.min.css",
-              "./node_modules/@fortawesome/fontawesome-free/css/all.min.css",
               "client/styles.scss"
             ],
             "scripts": [
