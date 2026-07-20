@@ -864,3 +864,58 @@ Rolled into H's 2fcbf51 commit (which added its own H-block at the same time), c
 - HUID / barcode scanner input, weighing-scale RS-232/USB-HID — all Phase 2.
 
 **Phase 2 unblocked.** Every screen the app has now looks like one product. The stack (Tailwind + Spartan/brain + Radix Colors tokens + Lucide + Inter/Hind/Instrument Serif) is proven across ~40 templates. Time to layer the P2 domain features on top.
+
+---
+
+## 12. Phase 2 — competitive with Marg
+
+**Kicked off 2026-07-21.** Goal: give the app the domain features that a Marg-user comparing side-by-side actually asks about — HUID scan, live weight from a scale, old-gold exchange as a first-class cart line, saving schemes, karigar (goldsmith) job-work, reports the CA can consume, RBAC that owners trust, and backup/restore.
+
+**Scope (locked; nothing added mid-flight):**
+
+1. **Hardware inputs on cart** — HUID / barcode scanner (keyboard-wedge focus-anywhere) + weighing-scale integration (`serialport` RS-232 + USB-HID).
+2. **Old-gold exchange on cart** — schema is ready (`OldGoldReceipts`), UI + SP wiring is not.
+3. **Saving-scheme module** — enroll, per-installment receipt, running balance, maturity, redemption on invoice. Schema stub exists (`SavingSchemes`, `SavingSchemeInstallments`).
+4. **Karigar (goldsmith) job-work module** — issue pure gold with challan, receive back finished piece with wastage, ledger reconciliation. Schema stub exists (`KarigarJobCards`, `KarigarLedger`).
+5. **Reports v1** — day-book (cash + bank + UPI per day), sales register, stock summary by purity (with grams + tag-price valuation), GSTR-1 JSON export (for CA to upload directly).
+6. **RBAC** — route guards on the client + `type`-based auth checks inside every SP that reveals cost / does destructive writes. Owner-only surfaces: cost fields, cancel invoice, delete customer, delete product, backup, settings write.
+7. **Backup + restore** — encrypted `mysqldump` archive to disk (later Drive), passphrase-protected. Restore flow with confirm + relaunch.
+
+**Explicitly not in P2 (still P3):** WhatsApp Business API, IBJA rate auto-fetch, CSV / Tally migration, Hindi/regional i18n, Android companion, `⌘K` command palette, repair/job-ticket module, e-invoice IRP live integration.
+
+**Execution plan (matches the Phase-1 pattern):**
+
+- **Workstream K — Backend foundation** (sequential, first): every P2 stored procedure and IPC channel. Blocks the UI workstreams.
+- **Workstream L — Hardware + Old-gold cart** (after K): serial + HID via Electron main-process, cart UI additions, old-gold entry row + persistence, print-invoice extension.
+- **Workstream M — Saving-scheme + Karigar** (after K): two new feature modules end-to-end with the P1.5 design tokens.
+- **Workstream N — Reports + Backup** (after K): reports module (4 report screens), export to CSV / JSON / PDF where appropriate, backup/restore UI.
+- **Workstream O — RBAC** (after K, but small enough to bundle with N if the guards are trivial): route guards + proc-level `type` checks + owner-only field visibility across all screens.
+
+L / M / N can run in parallel. O is smallest and likely folds into N.
+
+**Non-negotiables carried over from Phase 1.5:**
+
+- Data policy stays destructive — dummy data only, no migrations. Drop-and-recreate.
+- Design system stays put: Tailwind + Spartan/brain (alpha.563) + Radix tokens + Lucide + Inter/Hind/Instrument Serif + `.hlm-*` recipes + workstream-labeled recipe blocks at the bottom of `styles.scss`.
+- Every new screen uses the H/I/J recipes (`.detail-shell`, `.form-section`, `.kpi-card`, `.status-chip`, `.tabs-strip`, `.radio-pill-row`, `.money-*`, `.icon-btn`) — do NOT invent parallel recipes.
+- All GST + karigar + old-gold policy defaults are toggleable via `ShopSettings` or `TaxSlabs`, not hard-coded. Flagged questions (RCM vs Rule 32(5), 40L HUID exemption) surface as read-only "confirm with your CA" notes, never as immutable defaults.
+
+### 12.1 Workstream K — status
+
+_TBD_
+
+### 12.2 Workstream L — status
+
+_TBD_
+
+### 12.3 Workstream M — status
+
+_TBD_
+
+### 12.4 Workstream N — status
+
+_TBD_
+
+### 12.5 Workstream O — status (if not folded into N)
+
+_TBD_
