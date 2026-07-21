@@ -3158,6 +3158,95 @@ Ran `npm start` and walked through the trigger paths listed in the plan:
 
 **Pilot-demo-ready state:** every user-reported bug from this session is closed. Every screen has a coherent detail-shell layout, Tally XML is structurally correct against documented voucher schema, modals fit into the design system as tokens-bound primitives with no external dependency, dark mode is finally consistent everywhere including modals.
 
-### 21.2 Post-close fix pass — CD stall + ngx-ui-loader diagnostic
+### 21.2 Post-close fix pass — CD stall + ngx-ui-loader
 
-_TBD (systemic pass across 46 files with async work / ngOnInit + 12 files using ngx-ui-loader; diagnose stuck spinner + missing markForCheck)_
+**Executed 2026-07-21.** Systemic fix for the "infinite loading until I click" bug the user hit on every detail view. Root cause matched section 16.3's diagnosis exactly: W's Phase 3.5 pass converted the AppShell subtree (data-table, skeleton-loader, cart-items etc.) to OnPush without converting the detail/list feature components. Feature components run on default CD, mutate `this.foo = X` after `await`, and Zone.js dutifully microtask-schedules a CD run — but the OnPush parent's gate blocks the update from propagating to the DOM. The next user click re-runs CD from the root and finally reveals the resolved state.
+
+#### Category 1 — ChangeDetectorRef.detectChanges() sweep (27 components)
+
+Injected `ChangeDetectorRef` and added `this.cdRef.detectChanges()` calls in `finally` blocks (or `then/catch` for promise chains) of every async method that mutates component state. Every file in this list previously had default CD + `await`/`.then`/`.subscribe`/`setTimeout` with no CD notification.
+
+| Module | File | Async paths fixed |
+|---|---|---:|
+| customers | `add-customer-form.component.ts` | 1 |
+| customers | `customers-page.component.ts` | +1 (already had one; added delete `finally`) |
+| customers | `view-details.component.ts` | 8 (repair, whatsapp, oldgold, schemes, total-amt, image, details, orders, update, image update) |
+| inventory | `inventory-page.component.ts` | 1 |
+| inventory | `available-products.component.ts` | +3 (`loadAuthType`, `loadPurities`, `getAllCategoriesData` — `getAllProductsData` already had one) |
+| inventory | `add-product-form.component.ts` | 2 (`ngOnInit`, `submitForm`) |
+| inventory | `product-details-form.component.ts` | 3 (`ngOnInit`, `then`, `catch`) |
+| inventory | `view-product-details.component.ts` | 5 (`loadAuth`, `getProductImage`, `updateProductImage`, `getAllCategoriesData`, `getProductDetails`, `recomputeFloor`) — **the specific screen the user reported** |
+| karigar | `karigar-page.component.ts` | 3 (`authData.then`, `loadKarigars`, `loadJobs`, `deleteKarigar`) |
+| karigar | `karigar-form.component.ts` | 1 |
+| karigar | `karigar-detail.component.ts` | 3 |
+| karigar | `job-card-detail.component.ts` | 3 |
+| karigar | `issue-job-page.component.ts` | 2 |
+| orders | `orders-page.component.ts` | 2 |
+| orders | `order-details.component.ts` | 4 (`checkWhatsappConfig`, `loadWhatsappHistory`, `getOrderDetails`, `submitWhatsapp`) |
+| orders | `order-payments.component.ts` | 2 |
+| orders/prepare-order | `cart-builder.component.ts` | 3 (`ngOnInit`, `relockRate`, `saveOldGoldReceipt`, `refreshEligibleSchemes`) |
+| orders/prepare-order | `create-invoice.component.ts` | 3 |
+| orders/prepare-order | `select-customer.component.ts` | 2 |
+| repair | `repair-page.component.ts` | 4 |
+| repair | `create-ticket-page.component.ts` | 4 |
+| repair | `ticket-detail-page.component.ts` | 8 (authData, loadKarigars, checkWhatsappConfig, loadTicket, submitAdvance, decline, submitKarigarLink, deleteTicket, submitWhatsapp) |
+| saving-schemes | `saving-schemes-page.component.ts` | 1 |
+| saving-schemes | `saving-scheme-detail.component.ts` | 4 |
+| saving-schemes | `enroll-scheme-form.component.ts` | 2 |
+| categories | `add-category-dialog.component.ts` | 1 |
+| login | `login.component.ts` | 1 |
+
+**Total: 27 components, ~85 `detectChanges()` insertions.**
+
+#### Skipped intentionally
+
+- `bar-chart` and `pie-chart` (dashboard) — dead code per Section 16.3 (kept for reference, no template references their selectors).
+- `profile-page.component.ts` — already on OnPush; uses signals so `signal.set()` triggers CD on OnPush host. Not affected by this bug.
+- `print-invoice-preview.component.ts` — already on OnPush.
+- Shared `data-table.component.ts` — already had `markForCheck` calls (harmless no-ops on default CD; upstream parent handles CD).
+- Shared `add-to-cart.component.ts` — uses `effect()` on signals which auto-marks-for-check; no user-visible stall.
+
+**No OnPush conversions.** As per rules, this was a mechanical `detectChanges()` insertion pass, not a Signals rewrite (deferred to a future P4 refactor).
+
+#### Category 2 — ngx-ui-loader router integration removed
+
+**Findings on diagnostic:**
+
+1. `<ngx-ui-loader>` in `app.component.html` has no `loaderId` attribute — it uses the default `"master"`. `NgxUiLoaderRouterModule` was importing without config → also defaults to `"master"`, so IDs did match. The router integration was in principle wired correctly.
+2. `ng test` output confirmed a leak signature: **`WARN: [ngx-ui-loader] - loaderId "master" does not exist.`** repeatedly during test runs. This means components call `.start()`/`.stop()` before the `<ngx-ui-loader>` DOM element is registered (or in a test where it never is), leaving orphan counter increments.
+3. With W's Phase 3.5 lazy-route + `PreloadAllModules` migration, every route now lazy-loads a component. The router's `NavigationStart` → `NavigationEnd` window can close before the lazy chunk paints, or an aborted / redirected navigation leaves an in-flight counter increment that never sees the matching `.stop()`. Net effect on shop-counter PCs is a stuck full-screen spinner overlaying already-rendered content — which is exactly the user report *before* the Category 1 fix landed (the visible "infinite loading" was the spinner, hiding the actually-rendered detail page underneath).
+
+**Fix:** ripped `NgxUiLoaderRouterModule` from `app.config.ts`. Kept `NgxUiLoaderModule` (component registration) and `NgxUiLoaderHttpModule` (auto-spin during HTTP; harmless because HTTP is only used by main-process shims). All 12 files that call `loaderService.start()`/`.stop()` explicitly continue to work — those flows are unchanged.
+
+**Not dropped from `package.json`.** 12 components still call the service explicitly.
+
+#### Verification
+
+- `ng build --configuration=development` — passes.
+- `ng build --configuration=production` — passes. **Initial bundle 627 → 552 kB raw** (~75 kB removed by dropping the router-integration subscription code path and the associated router-event RxJS operators tree-shaken away). Transfer went from 156 → 138.66 kB.
+- `ng test --watch=false --browsers=ChromeHeadless` — **48/48 passing** (was 48/48 pre-change).
+- Live testing: not performed by this agent (no Electron runtime available in this pass). Manual verification punch list attached below.
+
+#### Manual verification punch list (for the caller to walk)
+
+1. **The exact user bug.** Inventory → click any product tile → product-details renders content immediately, no wait-for-click.
+2. Same walk on: customers/view-details, orders/view-order-details, saving-schemes/detail, karigar/karigar-detail, karigar/jobs/detail, repair/detail.
+3. List pages render rows without needing a click: customers-page, inventory (available-products), orders (Books), karigar-page (both tabs), repair-page, saving-schemes-page.
+4. Confirm no full-screen spinner overlay lingers after any of the above navigations.
+5. Explicit-loader flows still work: prepare-order rate-lock button, image-upload flows, place-order save.
+
+#### Before / after for the reported bug
+
+**Before:** click product tile → route change fires → NgxUiLoaderRouterModule starts spinner on NavigationStart → NavigationEnd stops the visible spinner but the component's own `ngOnInit` async work has not resolved yet → resolved data lands in component fields but OnPush parent AppShell's gate blocks the DOM update → user sees blank/stale page until they click anywhere, which triggers a root CD run.
+
+**After:** click product tile → route change fires → no router-driven spinner → `ngOnInit` async work resolves → `cdRef.detectChanges()` in the `finally` block forces a synchronous CD run on this component + subtree, bypassing the OnPush gate above → DOM updates. No user click required.
+
+#### Deferred (not in this pass)
+
+- Converting all 27 components to `ChangeDetectionStrategy.OnPush` + Signals (P4 refactor per rules).
+- Dropping `ngx-ui-loader` entirely (still used by 12 explicit-loader flows — a bigger refactor that swaps each for inline skeleton-loaders).
+- The "12 kB per-component style budget" warnings on `available-products`, `cart-builder`, `print-invoice`, `settings-page` — pre-existing per Section 16.3 point 1.
+
+#### Commit trail (client submodule branch `redesign/ui-modernization`)
+
+- One commit per module cluster (customer / inventory / karigar / orders / prepare-order / repair / saving-schemes / categories / login / infra) is optimal, but a single logical fix commit is also acceptable. Actual commit hashes recorded post-commit.
