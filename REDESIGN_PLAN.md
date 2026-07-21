@@ -3313,3 +3313,7 @@ Because DevTools access wasn't available in this pass, ask the user to re-trigge
 
 Not pushed. Parent submodule pointer not bumped — reconciliation handles it.
 
+
+### 21.4 Mobile-responsive audit + fix pass
+
+_TBD (systematic pass across all screens: 375px phone, 768px tablet, 1024px small-laptop breakpoints; hamburger for slim rail, stacked columns, card-view for tables, no overflow-x)_
