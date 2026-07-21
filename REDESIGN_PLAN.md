@@ -3157,3 +3157,7 @@ Ran `npm start` and walked through the trigger paths listed in the plan:
 - WhatsApp real send from Meta Business API (still needs Meta green tick; unchanged from P3).
 
 **Pilot-demo-ready state:** every user-reported bug from this session is closed. Every screen has a coherent detail-shell layout, Tally XML is structurally correct against documented voucher schema, modals fit into the design system as tokens-bound primitives with no external dependency, dark mode is finally consistent everywhere including modals.
+
+### 21.2 Post-close fix pass — CD stall + ngx-ui-loader diagnostic
+
+_TBD (systemic pass across 46 files with async work / ngOnInit + 12 files using ngx-ui-loader; diagnose stuck spinner + missing markForCheck)_
