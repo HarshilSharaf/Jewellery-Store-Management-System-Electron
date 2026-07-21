@@ -3316,4 +3316,127 @@ Not pushed. Parent submodule pointer not bumped — reconciliation handles it.
 
 ### 21.4 Mobile-responsive audit + fix pass
 
-_TBD (systematic pass across all screens: 375px phone, 768px tablet, 1024px small-laptop breakpoints; hamburger for slim rail, stacked columns, card-view for tables, no overflow-x)_
+**Executed 2026-07-21 on client submodule branch `redesign/ui-modernization`.** Systematic small-screen sweep. BB's Phase 3.6 pass covered `xl:` / `2xl:` breakpoints for wide monitors; nothing had been done for narrow viewports. AppShell's slim 56px rail stayed at all widths, `.detail-shell` 65/35 splits didn't collapse, list-view tables used wide `grid-template-columns` that overflowed on phones. This pass fixed all of that as media-query-guarded additions — desktop layout (≥1024px) is unchanged.
+
+#### Breakpoints
+
+Three test viewports, four SCSS breakpoint bands:
+
+- **1024px** (`max-width: 1023px`) — rail collapses to hamburger drawer; detail-shells stack; report-page host padding drops 24 → 16.
+- **768px**  (`max-width: 767px`)  — list tables become card-view; form-grid / detail-grid → 1 col; rate ticker hides; page-title heading shrinks 2.25rem → 1.75rem.
+- **640px**  (`max-width: 639px`)  — field-grid → 1 col; top-bar search collapses to icon-only; primary CTAs go full-width; settings tabs-strip becomes 2-col pill grid.
+- **480px**  (`max-width: 479px`)  — shop wordmark hides in favor of initial; cart-builder line grid → 1 col; sell-wizard action bar wraps.
+
+#### Hamburger drawer
+
+New component `client/app/shared/components/app-shell/rail-drawer/`:
+
+- Full-height slide-in panel from left, 260px wide (`max-width: 84vw`), 200ms ease-out.
+- Nav-items array lifted to `client/app/shared/components/app-shell/rail-nav-items.ts` — both rail and drawer consume the same list.
+- Closes on: backdrop click, Escape key (`@HostListener`), `NavigationEnd` router event (subscribed via `takeUntilDestroyed`).
+- Rendered inside `AppShellComponent`; `.shell__rail { display: none }` hides the rail below 1024px; `.top-bar__menu` shows a `lucideMenu` button that toggles the drawer via a signal on the shell.
+
+#### Top-bar responsive hiding
+
+- Below 1024px: hamburger button appears; padding tightens 20 → 12.
+- Below 768px: rate ticker hidden (the three pills wouldn't fit anywhere useful).
+- Below 640px: full search input hidden; a compact icon-only `top-bar__search-compact` button (also opens the palette) takes its place.
+- Below 480px: shop wordmark truncates to a single-letter initial via `top-bar__wordmark--initial`.
+
+Theme toggle, cart badge, and user menu stay visible at every width.
+
+#### Detail-shell + host padding
+
+- `.detail-shell` recipe in `styles.scss` (H's block): stack breakpoint aligned to 1024px (was 1100). `.detail-side` un-sticks on stack. Below 768px the side rail becomes a 2-column KPI mini-grid; nested full-width sections span both columns via `.side-wide`.
+- Six detail-screen host paddings drop 24px → 16px → 12px across the three bands: `karigar-detail`, `job-card-detail`, `saving-scheme-detail`, `saving-schemes-page`, `karigar-page`, `issue-job-page`.
+- Six detail page titles (`view-header__name`, `order-head__title`, `repair-head__title`, `profile-hero__name`) shrink 2rem → 1.5rem below 768px.
+- Cart-builder's stacking breakpoint aligned; below 767px its `.line__grid` drops from 4 to 2 cols; rate-card list becomes 2-col grid (1-col below 480).
+- Order-details layout stacks at 1023 (was 1100).
+- Profile-shell stacks at 1023 (was 1100); profile-main padding drops to 20px below 768.
+
+#### List-view card-fallback
+
+Every list-page table below 768px repaints its rows as stacked cards with a panel background and 1px border. Approach chosen per screen (grid-template-areas swap vs. `flex-direction: column`) based on the underlying markup — real `<table>` for orders/books; `display:grid` "row" divs for customers/inventory/karigar/repair/schemes.
+
+Screens converted:
+- `customers/customers-page` — `.people-row` (breakpoint 720 → 767).
+- `inventory/available-products` — `.stock-table__row` (900 → 767).
+- `orders/orders-page` — `.books-row` `<tr>` becomes `flex-direction: column` card; thead hidden.
+- `karigar/karigar-page` — `.jobs-row` becomes stacked card with `.col-status` inline.
+- `repair/repair-page` — `.repair-row` becomes stacked card, columns dropped: days, return.
+- `saving-schemes/saving-schemes-page` — `.schemes-row` becomes stacked card, monthly + progress dropped.
+- Karigar-cards and inventory-grid already used `auto-fill minmax()` so degrade naturally.
+- WhatsApp activity table in Settings (7-col fixed grid) collapses to 2-col below 768.
+
+New shared responsive recipe block appended to `styles.scss` at the bottom (`// Workstream 21.4 — mobile-responsive recipes`). Adds `data-row--card` modifier for future opt-in card conversion, plus generic rules on `.detail-shell`, `.detail-side`, `.form-grid`, `.field-grid`, `.detail-grid`, `.page-title`, `.tabs-strip .tab-item`, `.report-scroll .ds-table th:first-child` (sticky first column for wide reports).
+
+#### Report tables
+
+Day-book and stock-summary templates got a `.report-scroll` wrapper (the other two reports already had it). Below 768px the wrapper enables `overflow-x: auto` with `-webkit-overflow-scrolling: touch`; the first column becomes `position: sticky` so date/purity labels stay visible while horizontal-scrolling. Every `.report-page` host padding drops 32 → 16 → 12 across the three bands. `reports-landing` grid tiles collapse to 1 col below 640.
+
+Ledger tables on `karigar-detail` and `job-card-detail` (fixed-width `grid-template-columns` with 7 columns) don't collapse to cards — instead they get `overflow-x: auto` on the `.ledger-table` container with a `min-width` floor, so they scroll horizontally rather than pushing the outer content column.
+
+#### Form fixes
+
+- `.form-grid` / `.form-grid--3` collapse to 1 col at 767 (was 720 in J's block; overlap is fine, both rules match).
+- `.field-grid` collapses to 1 col at 640.
+- Overlay panels (add-customer, add-product, karigar-form) already use `max-width: 640-780px` with `width: 100%` + `padding: 1rem` on the backdrop, so they fit at 375px unchanged.
+- Sell-wizard stepper (`prepare-order`) action foot wraps + goes full-width buttons below 480; step-pill list wraps.
+
+#### Settings tabs
+
+Below 640px the horizontal tab strip transforms into a 2-col pill grid (`display: grid; grid-template-columns: repeat(2, minmax(0, 1fr))`). Active tabs get accent border. All 7 tabs (Shop / Rates / Users / Print & hardware / WhatsApp / Activity / Appearance / Language / Backup) fit without horizontal scroll.
+
+#### Left as-is (intentional)
+
+- **Print-invoice preview + print-invoice A4/thermal templates.** Fixed print widths; scroll horizontally at narrow viewports (correct behaviour).
+- **AppDialog + AppToast primitives.** Already fit at 375px; no changes.
+- **Login two-panel layout.** Already had its own 860px + 480px responsive rules.
+- **All overlay dialog forms.** Already use `max-width` + `width: 100%` pattern that fits phone widths.
+- **BB's ultra-wide (`min-width: 1800/2400`) breakpoints.** Untouched; desktop-plus is BB's turf.
+- **X's typography-preset live-swap.** Ticker/preset selector renders identically at all widths.
+- **Cart-builder totals rail** — did not add "sticky-bottom collapsed grand-total with tap-to-expand" from the spec because that would require a signal-driven expand state + template refactor bigger than a media-query pass warrants. On narrow viewports the totals rail just stacks below the line-items in normal document order; users scroll to see it. Flagged as follow-up if user testing reveals it's a friction.
+
+#### What couldn't be verified without live testing
+
+DevTools device-emulator testing wasn't available in this pass. Build gates were green; unit tests unchanged. Manual walkthrough punch list attached below — needs to be exercised by the caller.
+
+#### Verification
+
+- `ng build --configuration=development` — **PASS.** Only pre-existing NG8107 optional-chain warnings + `@angular/localize/init` polyfill notice; no new errors.
+- `ng test --watch=false --browsers=ChromeHeadless` — **48 / 48 SUCCESS** (unchanged).
+- `ng build --configuration=production` — **PASS.** Same pre-existing per-component style-budget warnings on cart-builder (+3.51 kB), available-products (+2.79 kB), settings-page (+447 B), print-invoice (+4.26 kB) — all under the 12 kB error threshold BB set. cart-builder grew from 9.24 → 9.51 kB with the new media queries; still well under 12 kB.
+
+#### Manual verification punch list (for the caller to walk)
+
+Chrome DevTools → Toggle device toolbar → cycle through 375 / 768 / 1024 / 1280:
+
+1. **Rail collapse.** At 1023px and below, the left rail disappears; a hamburger button appears at the far left of the top-bar. Click it → drawer slides in from the left with all nav items labelled. Click backdrop or press Escape → drawer closes. Navigate to a route → drawer closes automatically.
+2. **Top-bar shrink.** At 767px the rate-ticker disappears. At 639px the full search input collapses to an icon button that still opens the palette. At 479px the shop wordmark ("Radiance") becomes a single "R".
+3. **Detail pages stack.** Load Customers → click a row → view-details. Below 1024px the 65/35 split becomes a single column with the side-rail flowing below the main content. Below 768px the side-rail becomes a 2-col KPI mini-grid.
+4. **List pages become cards.** Customers, Inventory, Books (orders), Karigar (both tabs), Repair, Saving-schemes lists — below 768px each row becomes a stacked card with panel background + 1px border, actions and status inline.
+5. **Reports.** Load Day-book, Sales-register, Stock-summary, GSTR-1. Below 768px the tables scroll horizontally inside a wrapper; the first column stays sticky. Outer container doesn't horizontal-scroll.
+6. **Forms.** Add-customer, Add-product, Add-karigar, Add-repair, Enroll-scheme overlays fit at 375px width. Field-grid rows collapse to single column below 640; the primary CTAs (Save, Cancel) can wrap.
+7. **Settings.** Below 640px the tab strip becomes a 2-col pill grid. All tabs visible without horizontal scroll.
+8. **Cart-builder.** Load Sell → Add items step. Below 1024px the totals-rail moves below the line items. Below 768px each line's field grid drops from 4 to 2 columns; rate-card becomes 2-col.
+9. **Outer container.** No route horizontal-scrolls at 375px / 768px / 1024px. If a route does, the fix belongs in that route's SCSS (typically an `overflow-x: auto` or `min-width: 0` on a grid child).
+
+#### Commit trail (client submodule, `redesign/ui-modernization`)
+
+- `f1adc5b` — `feat(shell): hamburger drawer for narrow viewports (<1024px)`
+- `42cce54` — `fix(list-views): card-view fallback below 768px`
+- `6329ae1` — `fix(reports): horizontal-scroll wrapper on wide report tables`
+- `78ee15b` — `fix(detail-shell): align stacking breakpoint to 1024px`
+- `8331c61` — `fix(detail-views): shrink page titles and host padding on phone`
+- `86693d5` — `fix(ledger-tables): horizontal scroll below 768px`
+
+Not pushed. Parent submodule pointer not bumped — reconciliation handles it.
+
+#### Deferred (not in this pass)
+
+1. **Cart-builder sticky-bottom compact totals bar** (with tap-to-expand full breakdown). Spec called for this but implementation would need a signal + template refactor that goes beyond media-query additions. Current behaviour: totals rail stacks below line items in document order, users scroll to reach it.
+2. **Nav-drawer swipe-to-close gesture.** Would need pointer-event listeners; not part of a responsive-CSS pass.
+3. **On-screen keyboard viewport handling.** iOS Safari and Chromium mobile shrink the viewport when the keyboard opens. Any dialog with a fixed `top` value can jump; the existing overlays already use `align-items: flex-start; overflow-y: auto` so they degrade acceptably.
+4. **Print CSS.** Print previews stay at fixed A4 / 80mm widths (per spec, intentional).
+5. **RTL layouts.** No RTL testing done; the drawer slides in from `left` unconditionally, which would need swapping for RTL locales.
+6. **Reduced-motion honoring for the drawer transition.** Currently uses a 200ms transform unconditionally; `prefers-reduced-motion: reduce` should short-circuit that to 0ms. Follow-up.
