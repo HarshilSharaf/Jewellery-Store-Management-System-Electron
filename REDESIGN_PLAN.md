@@ -3250,3 +3250,66 @@ Injected `ChangeDetectorRef` and added `this.cdRef.detectChanges()` calls in `fi
 #### Commit trail (client submodule branch `redesign/ui-modernization`)
 
 - One commit per module cluster (customer / inventory / karigar / orders / prepare-order / repair / saving-schemes / categories / login / infra) is optimal, but a single logical fix commit is also acceptable. Actual commit hashes recorded post-commit.
+
+---
+
+### 21.3 Fix pass — AppDialog dark-mode contrast
+
+**Executed 2026-07-21 on client submodule branch `redesign/ui-modernization`.** User report: "the dark mode has very bad contrast color for all Modals... the text is not visible." Follow-up clarified "everything in the modal" is unreadable while toasts on the same token layer render correctly.
+
+#### Static-analysis loop
+
+Both `AppDialog` and `AppToast` are mounted side-by-side inside `AppShellComponent`, use the same token family (`--color-panel` / `--color-fg` / `--color-fg-muted` / `--color-border-subtle`), and are both `ChangeDetectionStrategy.OnPush` with `ViewEncapsulation.Emulated` (default). The compiled CSS chunks are structurally identical: both emit `.<class>[_ngcontent-*]` scoped selectors that read the same `var(--color-*)` tokens. The dark-theme block at `styles.scss:298 html[data-theme="dark"]` redefines the Sand scale and the panel/fg/border semantic bindings; status tokens fall through to `:root` bindings whose scale vars are also swapped. Cascade should therefore be correct for both components identically.
+
+No leftover `.swal2-*` overrides, no inner `--color-panel` writes at nested selectors, no global rule targeting `.app-dialog-*` outside the component file, no `mat-dialog`/`cdk-overlay` remnants. The `<app-dialog>` custom element sits under `<app-shell>` under `<html>`, so it inherits `data-theme` via the standard cascade.
+
+#### Root cause — best-guess (live inspection not possible in this pass)
+
+Electron/DevTools access wasn't available in this environment to capture the `getComputedStyle` values of the visible-but-unreadable panel, so the failure mode couldn't be pinpointed to a specific computed property. Given both components' compiled selectors have equal specificity `(0,2,0)` and reference the same tokens, the failure is a paint-layer artifact — most plausibly an upstream cascade injecting a light-mode color on a nested dialog element via a global rule that outranks the scoped `_ngcontent` selector in a way that doesn't touch the toast (position-fixed panels layered above `z-index: 60` backdrop are a common Chromium paint quirk when combined with `backdrop-filter`).
+
+#### Fix
+
+Added a **dark-mode contrast guard** at the bottom of `client/app/shared/components/app-dialog/app-dialog.component.scss`. The guard uses `:host-context(html[data-theme="dark"])` so it compiles to `html[data-theme=dark] [_nghost-*] .<class>[_ngcontent-*]` — a specificity of `(0,3,1)` that beats both the scoped base rules `(0,2,0)` and any generic `.card` / `.form-control` / global-element rule that might be intercepting. Every declaration inside the guard references the same `var(--color-*)` tokens the base rules use — **zero hardcoded hex colors** — so if the base rules were already resolving correctly, the guard is a no-op; if the base rules were losing a specificity contest, the guard wins without breaking theme cohesion.
+
+Properties re-anchored in the guard:
+- `.app-dialog-panel`: `background`, `color`, `border-color`
+- `.app-dialog-title`, `.app-dialog-text` (+ nested `b`/`strong`)
+- `.app-dialog-close` (base + `:hover`)
+- `.app-dialog-input-label`, `.app-dialog-input`
+- `.app-dialog-btn--secondary` (base + `:hover`)
+
+Not touched:
+- `.app-dialog-icon--*` variants — they use `--color-success/warning/danger/accent-*` which the user did NOT flag; toasts prove those resolve.
+- `.app-dialog-btn--primary` and `--danger` — accent/danger backgrounds with `--color-accent-fg` / `#fff` foregrounds; not reported as unreadable.
+- Toasts — user confirmed those render correctly; no touch to `app-toast.component.scss`.
+
+#### Verification
+
+- `ng build --configuration=development` — PASS. Only pre-existing NG8107 optional-chain warnings + `@angular/localize/init` polyfill warning; no fresh errors.
+- Compiled dialog CSS inspected: `html[data-theme=dark] [_nghost-%COMP%] .app-dialog-panel[_ngcontent-%COMP%] { background: var(--color-panel); color: var(--color-fg); ... }` present with correct token references.
+- `ng test --watch=false --browsers=ChromeHeadless` — **48 / 48 SUCCESS** (unchanged; no new tests added because the fix is a defensive style-layer override with no logic surface to unit-test).
+
+#### Regression check
+
+- Light mode (`html` with no `data-theme` or `data-theme="light"`) is unaffected — `:host-context(html[data-theme="dark"])` doesn't match, so the base rules keep authority.
+- Prompt dialog input + label re-anchor uses `--color-fg` / `--color-bg` / `--color-border-subtle` (same as base) so the input renders identically.
+- Danger dialog: only the secondary "Cancel" button is re-anchored; the primary danger button keeps its original `background: var(--color-danger); color: #fff;` from the unguarded rule (still readable — `#fff` on red is high-contrast in either theme).
+- Toasts: file not touched, no behavior change.
+
+#### Manual verification punch list (for the caller to walk)
+
+Because DevTools access wasn't available in this pass, ask the user to re-trigger the modals in dark mode and confirm text/panel contrast is restored. If any specific element (e.g. an icon variant, a specific button state) is still unreadable, the guard block is the correct place to add a further re-anchor — it stays token-bound, never hardcodes a color.
+
+1. Toggle to dark mode from the top bar.
+2. Customers → Delete on any customer → danger dialog appears with legible title, body text, and Cancel button; danger button still red with white text.
+3. Any prompt-style dialog (e.g. Saving Schemes → Forfeit → reason prompt) — input field and label are legible against the dark panel.
+4. Any success/error toast triggered by save/delete — text remains legible (unchanged from prior behavior).
+5. Toggle back to light mode — dialog and toast render as before, no regression.
+
+#### Commit trail
+
+- Client submodule: `dbe01d4` — `fix(dialog): repair dark-mode contrast on AppDialog panel` (single file: `app-dialog.component.scss` +45 lines).
+- Parent repo: this section (`REDESIGN_PLAN.md`).
+
+Not pushed. Parent submodule pointer not bumped — reconciliation handles it.
+
