@@ -517,13 +517,13 @@ function registerIpcHandlers() {
     return runWithTimeout(async () => {
       const [r] = await pool.execute(
         'call add_karigar(?, ?, ?, ?, ?);',
-        [
+        sanitizeBinds([
           payload?.name,
           payload?.phone ?? null,
           payload?.address ?? null,
           payload?.remarks ?? null,
           payload?.actorUserId ?? null,
-        ],
+        ]),
       );
       return r;
     }, options?.timeoutMs);
@@ -533,7 +533,7 @@ function registerIpcHandlers() {
     return runWithTimeout(async () => {
       const [r] = await pool.execute(
         'call get_all_karigars(?, ?, ?);',
-        [args?.itemsPerPage ?? 20, args?.pageNumber ?? 1, args?.searchQuery ?? ''],
+        sanitizeBinds([args?.itemsPerPage ?? 20, args?.pageNumber ?? 1, args?.searchQuery ?? '']),
       );
       return r;
     }, options?.timeoutMs);
@@ -543,14 +543,14 @@ function registerIpcHandlers() {
     return runWithTimeout(async () => {
       const [r] = await pool.execute(
         'call update_karigar(?, ?, ?, ?, ?, ?);',
-        [
+        sanitizeBinds([
           payload?.karigarGuid,
           payload?.name,
           payload?.phone ?? null,
           payload?.address ?? null,
           payload?.remarks ?? null,
           payload?.actorUserId ?? null,
-        ],
+        ]),
       );
       return r;
     }, options?.timeoutMs);
@@ -560,7 +560,7 @@ function registerIpcHandlers() {
     return runWithTimeout(async () => {
       const [r] = await pool.execute(
         'call delete_karigar(?, ?);',
-        [args?.karigarGuid, args?.actorUserId ?? null],
+        sanitizeBinds([args?.karigarGuid, args?.actorUserId ?? null]),
       );
       return r;
     }, options?.timeoutMs);
@@ -570,7 +570,7 @@ function registerIpcHandlers() {
     return runWithTimeout(async () => {
       const [r] = await pool.execute(
         'call issue_karigar_job(?, ?, ?, ?, ?, ?, ?, ?);',
-        [
+        sanitizeBinds([
           payload?.karigarGuid,
           payload?.issueDate ?? null,
           payload?.issuedGrossWeight,
@@ -579,7 +579,7 @@ function registerIpcHandlers() {
           payload?.expectedReturnDate ?? null,
           payload?.description ?? null,
           payload?.actorUserId ?? null,
-        ],
+        ]),
       );
       return r;
     }, options?.timeoutMs);
@@ -589,7 +589,7 @@ function registerIpcHandlers() {
     return runWithTimeout(async () => {
       const [r] = await pool.execute(
         'call receive_karigar_job(?, ?, ?, ?, ?, ?, ?, ?, ?, ?);',
-        [
+        sanitizeBinds([
           payload?.jobGuid,
           payload?.receivedDate ?? null,
           payload?.receivedGrossWeight,
@@ -600,7 +600,7 @@ function registerIpcHandlers() {
           payload?.makingCharge ?? 0,
           payload?.remarks ?? null,
           payload?.actorUserId ?? null,
-        ],
+        ]),
       );
       return r;
     }, options?.timeoutMs);
@@ -610,13 +610,13 @@ function registerIpcHandlers() {
     return runWithTimeout(async () => {
       const [r] = await pool.execute(
         'call settle_karigar_job(?, ?, ?, ?, ?);',
-        [
+        sanitizeBinds([
           payload?.jobGuid,
           payload?.settlementAmount,
           payload?.paymentMode,
           payload?.refNumber ?? null,
           payload?.actorUserId ?? null,
-        ],
+        ]),
       );
       return r;
     }, options?.timeoutMs);
@@ -633,12 +633,12 @@ function registerIpcHandlers() {
     return runWithTimeout(async () => {
       const [r] = await pool.execute(
         'call get_all_karigar_jobs(?, ?, ?, ?);',
-        [
+        sanitizeBinds([
           args?.itemsPerPage ?? 20,
           args?.pageNumber ?? 1,
           args?.karigarGuid ?? null,
           args?.statusFilter ?? null,
-        ],
+        ]),
       );
       return r;
     }, options?.timeoutMs);
@@ -648,7 +648,7 @@ function registerIpcHandlers() {
     return runWithTimeout(async () => {
       const [r] = await pool.execute(
         'call get_karigar_ledger(?, ?, ?);',
-        [args?.karigarGuid, args?.dateFrom ?? null, args?.dateTo ?? null],
+        sanitizeBinds([args?.karigarGuid, args?.dateFrom ?? null, args?.dateTo ?? null]),
       );
       return r;
     }, options?.timeoutMs);
@@ -658,7 +658,7 @@ function registerIpcHandlers() {
   ipcMain.handle('reports:dayBook', async (_event, args, options) => {
     return runWithTimeout(async () => {
       const [r] = await pool.execute(
-        'call get_day_book(?, ?);', [args?.dateFrom, args?.dateTo]);
+        'call get_day_book(?, ?);', sanitizeBinds([args?.dateFrom, args?.dateTo]));
       return r;
     }, options?.timeoutMs);
   });
@@ -667,7 +667,7 @@ function registerIpcHandlers() {
     return runWithTimeout(async () => {
       const [r] = await pool.execute(
         'call get_sales_register(?, ?, ?, ?);',
-        [args?.dateFrom, args?.dateTo, args?.customerGuid ?? null, args?.statusFilter ?? null],
+        sanitizeBinds([args?.dateFrom, args?.dateTo, args?.customerGuid ?? null, args?.statusFilter ?? null]),
       );
       return r;
     }, options?.timeoutMs);
@@ -676,7 +676,7 @@ function registerIpcHandlers() {
   ipcMain.handle('reports:stockSummaryByPurity', async (_event, args, options) => {
     return runWithTimeout(async () => {
       const [r] = await pool.execute(
-        'call get_stock_summary_by_purity(?);', [args?.asOfDate ?? null]);
+        'call get_stock_summary_by_purity(?);', sanitizeBinds([args?.asOfDate ?? null]));
       return r;
     }, options?.timeoutMs);
   });
@@ -684,7 +684,7 @@ function registerIpcHandlers() {
   ipcMain.handle('reports:gstr1Export', async (_event, args, options) => {
     return runWithTimeout(async () => {
       const [r] = await pool.execute(
-        'call get_gstr1_export_rows(?);', [args?.monthYear ?? null]);
+        'call get_gstr1_export_rows(?);', sanitizeBinds([args?.monthYear ?? null]));
       return r;
     }, options?.timeoutMs);
   });
@@ -692,7 +692,7 @@ function registerIpcHandlers() {
   ipcMain.handle('reports:lowStockByCategory', async (_event, args, options) => {
     return runWithTimeout(async () => {
       const [r] = await pool.execute(
-        'call get_low_stock_by_category(?);', [args?.thresholdCount ?? 3]);
+        'call get_low_stock_by_category(?);', sanitizeBinds([args?.thresholdCount ?? 3]));
       return r;
     }, options?.timeoutMs);
   });
@@ -844,7 +844,7 @@ function registerIpcHandlers() {
     return runWithTimeout(async () => {
       const [r] = await pool.execute(
         'call create_repair_ticket(?, ?, ?, ?, ?, ?, ?, ?, ?);',
-        [
+        sanitizeBinds([
           payload?.customerGuid,
           payload?.receivedByUserId ?? null,
           payload?.itemDescription,
@@ -854,7 +854,7 @@ function registerIpcHandlers() {
           payload?.estimatedReturnDate ?? null,
           payload?.notes ?? null,
           payload?.karigarGuid ?? null,
-        ],
+        ]),
       );
       return r;
     }, options?.timeoutMs);
@@ -864,14 +864,14 @@ function registerIpcHandlers() {
     return runWithTimeout(async () => {
       const [r] = await pool.execute(
         'call update_repair_status(?, ?, ?, ?, ?, ?);',
-        [
+        sanitizeBinds([
           payload?.ticketGuid,
           payload?.newStatus,
           payload?.actorUserId ?? null,
           payload?.actualCharge ?? null,
           payload?.paymentMode ?? null,
           payload?.paymentRef ?? null,
-        ],
+        ]),
       );
       return r;
     }, options?.timeoutMs);
@@ -881,13 +881,13 @@ function registerIpcHandlers() {
     return runWithTimeout(async () => {
       const [r] = await pool.execute(
         'call settle_repair_ticket(?, ?, ?, ?, ?);',
-        [
+        sanitizeBinds([
           payload?.ticketGuid,
           payload?.actualCharge,
           payload?.paymentMode,
           payload?.paymentRef ?? null,
           payload?.actorUserId ?? null,
-        ],
+        ]),
       );
       return r;
     }, options?.timeoutMs);
@@ -897,12 +897,12 @@ function registerIpcHandlers() {
     return runWithTimeout(async () => {
       const [r] = await pool.execute(
         'call link_repair_to_karigar(?, ?, ?, ?);',
-        [
+        sanitizeBinds([
           payload?.ticketGuid,
           payload?.karigarGuid,
           payload?.karigarJobGuid ?? null,
           payload?.actorUserId ?? null,
-        ],
+        ]),
       );
       return r;
     }, options?.timeoutMs);
@@ -919,14 +919,14 @@ function registerIpcHandlers() {
     return runWithTimeout(async () => {
       const [r] = await pool.execute(
         'call get_all_repair_tickets(?, ?, ?, ?, ?, ?);',
-        [
+        sanitizeBinds([
           args?.status ?? null,
           args?.customerSearch ?? null,
           args?.dateFrom ?? null,
           args?.dateTo ?? null,
           args?.pageSize ?? 20,
           args?.page ?? 1,
-        ],
+        ]),
       );
       return r;
     }, options?.timeoutMs);
@@ -935,7 +935,7 @@ function registerIpcHandlers() {
   ipcMain.handle('repair:getByCustomer', async (_event, customerGuid, options) => {
     return runWithTimeout(async () => {
       const [r] = await pool.execute(
-        'call get_repair_tickets_by_customer(?);', [customerGuid]);
+        'call get_repair_tickets_by_customer(?);', sanitizeBinds([customerGuid]));
       return r;
     }, options?.timeoutMs);
   });
@@ -944,7 +944,7 @@ function registerIpcHandlers() {
     return runWithTimeout(async () => {
       const [r] = await pool.execute(
         'call delete_repair_ticket(?, ?);',
-        [payload?.ticketGuid, payload?.actorUserId ?? null],
+        sanitizeBinds([payload?.ticketGuid, payload?.actorUserId ?? null]),
       );
       return r;
     }, options?.timeoutMs);
@@ -972,7 +972,7 @@ function registerIpcHandlers() {
     try {
       const [queued] = await pool.execute(
         'call queue_whatsapp_send(?, ?, ?, ?, ?, ?, ?, ?);',
-        [
+        sanitizeBinds([
           payload?.invoiceGuid ?? null,
           payload?.customerGuid,
           payload?.templateName,
@@ -981,7 +981,7 @@ function registerIpcHandlers() {
           payload?.attachmentUrl ?? null,
           payload?.phoneNumber,
           payload?.sentByUserId ?? null,
-        ],
+        ]),
       );
       const first = Array.isArray(queued) && queued[0] && queued[0][0];
       sendGuid = first ? first.sendGuid : null;
@@ -1003,13 +1003,13 @@ function registerIpcHandlers() {
       try {
         await pool.execute(
           'call update_whatsapp_status(?, ?, ?, ?, ?);',
-          [
+          sanitizeBinds([
             sendGuid,
             apiResult.ok ? 'sent' : 'failed',
             apiResult.messageId ?? null,
             apiResult.ok ? null : (apiResult.error || 'unknown'),
             payload?.sentByUserId ?? null,
-          ],
+          ]),
         );
       } catch (err) {
         logger.error('[whatsapp:send] update_whatsapp_status failed:', err);
@@ -1025,13 +1025,13 @@ function registerIpcHandlers() {
     return runWithTimeout(async () => {
       const [r] = await pool.execute(
         'call update_whatsapp_status(?, ?, ?, ?, ?);',
-        [
+        sanitizeBinds([
           payload?.sendGuid,
           payload?.newStatus,
           payload?.metaMessageId ?? null,
           payload?.errorMessage ?? null,
           payload?.actorUserId ?? null,
-        ],
+        ]),
       );
       return r;
     }, options?.timeoutMs);
@@ -1041,14 +1041,14 @@ function registerIpcHandlers() {
     return runWithTimeout(async () => {
       const [r] = await pool.execute(
         'call get_whatsapp_send_log(?, ?, ?, ?, ?, ?);',
-        [
+        sanitizeBinds([
           args?.customerGuid ?? null,
           args?.status ?? null,
           args?.dateFrom ?? null,
           args?.dateTo ?? null,
           args?.pageSize ?? 20,
           args?.page ?? 1,
-        ],
+        ]),
       );
       return r;
     }, options?.timeoutMs);
@@ -1057,7 +1057,7 @@ function registerIpcHandlers() {
   ipcMain.handle('whatsapp:getByCustomer', async (_event, customerGuid, options) => {
     return runWithTimeout(async () => {
       const [r] = await pool.execute(
-        'call get_whatsapp_sends_by_customer(?);', [customerGuid]);
+        'call get_whatsapp_sends_by_customer(?);', sanitizeBinds([customerGuid]));
       return r;
     }, options?.timeoutMs);
   });
@@ -1065,7 +1065,7 @@ function registerIpcHandlers() {
   ipcMain.handle('whatsapp:getByInvoice', async (_event, invoiceGuid, options) => {
     return runWithTimeout(async () => {
       const [r] = await pool.execute(
-        'call get_whatsapp_sends_by_invoice(?);', [invoiceGuid]);
+        'call get_whatsapp_sends_by_invoice(?);', sanitizeBinds([invoiceGuid]));
       return r;
     }, options?.timeoutMs);
   });
@@ -1079,13 +1079,13 @@ function registerIpcHandlers() {
     return runWithTimeout(async () => {
       const [r] = await pool.execute(
         'call get_ibja_snapshots(?, ?, ?, ?, ?);',
-        [
+        sanitizeBinds([
           args?.status ?? null,
           args?.dateFrom ?? null,
           args?.dateTo ?? null,
           args?.pageSize ?? 20,
           args?.page ?? 1,
-        ],
+        ]),
       );
       return r;
     }, options?.timeoutMs);
@@ -1238,7 +1238,7 @@ async function runIbjaFetchAndSave() {
     if (result.ok) {
       await pool.execute(
         'call save_ibja_snapshot(?, ?, ?, ?);',
-        [session, result.rawResponse ?? '', 'success', null],
+        sanitizeBinds([session, result.rawResponse ?? '', 'success', null]),
       );
       const purities = result.purities || {};
       const nowDate = now.toISOString().slice(0, 10);
@@ -1253,7 +1253,7 @@ async function runIbjaFetchAndSave() {
         try {
           await pool.execute(
             'call save_metal_rates(?, ?, ?, ?, ?);',
-            [nowDate, session, 'ibja', null, JSON.stringify(ratesArray)],
+            sanitizeBinds([nowDate, session, 'ibja', null, JSON.stringify(ratesArray)]),
           );
         } catch (rateErr) {
           logger.error('[ibja] save_metal_rates failed:', rateErr);
@@ -1263,12 +1263,12 @@ async function runIbjaFetchAndSave() {
     }
     await pool.execute(
       'call save_ibja_snapshot(?, ?, ?, ?);',
-      [
+      sanitizeBinds([
         session,
         result.rawResponse ?? '',
         result.reason || 'network_error',
         result.error || null,
-      ],
+      ]),
     );
     return { ok: false, error: result.error || result.reason };
   } catch (err) {
