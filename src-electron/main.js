@@ -155,6 +155,17 @@ async function createPool(config) {
 }
 
 /**
+ * mysql2 v3+ throws on `undefined` bind values ("Bind parameters must not
+ * contain undefined"). Earlier versions silently coerced to NULL. Any
+ * renderer-side payload with a missing optional field can trip this. We
+ * coerce here so a single missing field can't crash a whole handler.
+ */
+function sanitizeBinds(values) {
+  if (!Array.isArray(values)) { return []; }
+  return values.map((v) => (v === undefined ? null : v));
+}
+
+/**
  * Runs a callback against a fresh pool connection with a bounded timeout.
  * We wrap in a Promise.race rather than using the (non-standard) mysql2
  * `timeout` option because that option is inconsistently supported for
@@ -298,7 +309,7 @@ function registerIpcHandlers() {
 
   ipcMain.handle('db:execute', async (_event, sql, values, options) => {
     return runWithTimeout(async () => {
-      const [results] = await pool.execute(sql, values || []);
+      const [results] = await pool.execute(sql, sanitizeBinds(values));
       return results;
     }, options?.timeoutMs);
   });
@@ -325,13 +336,13 @@ function registerIpcHandlers() {
     return runWithTimeout(async () => {
       const [results] = await pool.execute(
         'call save_metal_rates(?, ?, ?, ?, ?);',
-        [
+        sanitizeBinds([
           payload?.effectiveDate,
           payload?.session,
           payload?.source ?? 'manual',
           payload?.setByUserId ?? null,
           JSON.stringify(payload?.rates ?? []),
-        ],
+        ]),
       );
       return results;
     }, options?.timeoutMs);
@@ -349,7 +360,7 @@ function registerIpcHandlers() {
     return runWithTimeout(async () => {
       const [results] = await pool.execute(
         'call save_shop_settings(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);',
-        [
+        sanitizeBinds([
           payload?.shopName,
           payload?.gstin,
           payload?.pan ?? null,
@@ -372,7 +383,7 @@ function registerIpcHandlers() {
           payload?.defaultPrintVariant ?? 'a4',
           payload?.typographyPreset ?? 'editorial',
           payload?.actorUserId ?? null,
-        ],
+        ]),
       );
       return results;
     }, options?.timeoutMs);
@@ -383,7 +394,7 @@ function registerIpcHandlers() {
     return runWithTimeout(async () => {
       const [results] = await pool.execute(
         'call save_old_gold_receipt(?, ?, ?, ?, ?, ?, ?, ?, ?, ?);',
-        [
+        sanitizeBinds([
           payload?.customerGuid,
           payload?.invoiceGuid ?? null,
           payload?.grossWeight,
@@ -394,7 +405,7 @@ function registerIpcHandlers() {
           payload?.creditAmount,
           payload?.remarks ?? null,
           payload?.actorUserId ?? null,
-        ],
+        ]),
       );
       return results;
     }, options?.timeoutMs);
@@ -403,7 +414,7 @@ function registerIpcHandlers() {
   ipcMain.handle('oldGold:getReceiptsByCustomer', async (_event, customerGuid, options) => {
     return runWithTimeout(async () => {
       const [results] = await pool.execute(
-        'call get_old_gold_receipts_by_customer(?);', [customerGuid]);
+        'call get_old_gold_receipts_by_customer(?);', sanitizeBinds([customerGuid]));
       return results;
     }, options?.timeoutMs);
   });
@@ -411,7 +422,7 @@ function registerIpcHandlers() {
   ipcMain.handle('oldGold:getReceiptByInvoice', async (_event, invoiceGuid, options) => {
     return runWithTimeout(async () => {
       const [results] = await pool.execute(
-        'call get_old_gold_receipt_by_invoice(?);', [invoiceGuid]);
+        'call get_old_gold_receipt_by_invoice(?);', sanitizeBinds([invoiceGuid]));
       return results;
     }, options?.timeoutMs);
   });
@@ -421,14 +432,14 @@ function registerIpcHandlers() {
     return runWithTimeout(async () => {
       const [r] = await pool.execute(
         'call enroll_saving_scheme(?, ?, ?, ?, ?, ?);',
-        [
+        sanitizeBinds([
           payload?.customerGuid,
           payload?.planName,
           payload?.monthlyAmount,
           payload?.tenureMonths ?? 11,
           payload?.bonusInstallments ?? 1,
           payload?.actorUserId ?? null,
-        ],
+        ]),
       );
       return r;
     }, options?.timeoutMs);
@@ -438,7 +449,7 @@ function registerIpcHandlers() {
     return runWithTimeout(async () => {
       const [r] = await pool.execute(
         'call record_scheme_installment(?, ?, ?, ?, ?, ?, ?);',
-        [
+        sanitizeBinds([
           payload?.schemeGuid,
           payload?.amount,
           payload?.paymentMode,
@@ -446,7 +457,7 @@ function registerIpcHandlers() {
           payload?.receiptDate ?? null,
           payload?.actorUserId ?? null,
           payload?.allowMultipleThisMonth ? 1 : 0,
-        ],
+        ]),
       );
       return r;
     }, options?.timeoutMs);
@@ -456,7 +467,7 @@ function registerIpcHandlers() {
     return runWithTimeout(async () => {
       const [r] = await pool.execute(
         'call redeem_saving_scheme(?, ?, ?);',
-        [payload?.schemeGuid, payload?.invoiceGuid, payload?.actorUserId ?? null],
+        sanitizeBinds([payload?.schemeGuid, payload?.invoiceGuid, payload?.actorUserId ?? null]),
       );
       return r;
     }, options?.timeoutMs);
@@ -466,7 +477,7 @@ function registerIpcHandlers() {
     return runWithTimeout(async () => {
       const [r] = await pool.execute(
         'call forfeit_saving_scheme(?, ?, ?);',
-        [payload?.schemeGuid, payload?.reason, payload?.actorUserId ?? null],
+        sanitizeBinds([payload?.schemeGuid, payload?.reason, payload?.actorUserId ?? null]),
       );
       return r;
     }, options?.timeoutMs);
@@ -474,7 +485,7 @@ function registerIpcHandlers() {
 
   ipcMain.handle('savingSchemes:getDetails', async (_event, schemeGuid, options) => {
     return runWithTimeout(async () => {
-      const [r] = await pool.execute('call get_saving_scheme_details(?);', [schemeGuid]);
+      const [r] = await pool.execute('call get_saving_scheme_details(?);', sanitizeBinds([schemeGuid]));
       return r;
     }, options?.timeoutMs);
   });
@@ -483,12 +494,12 @@ function registerIpcHandlers() {
     return runWithTimeout(async () => {
       const [r] = await pool.execute(
         'call get_all_saving_schemes(?, ?, ?, ?);',
-        [
+        sanitizeBinds([
           args?.itemsPerPage ?? 20,
           args?.pageNumber ?? 1,
           args?.statusFilter ?? null,
           args?.searchQuery ?? '',
-        ],
+        ]),
       );
       return r;
     }, options?.timeoutMs);
@@ -496,7 +507,7 @@ function registerIpcHandlers() {
 
   ipcMain.handle('savingSchemes:getByCustomer', async (_event, customerGuid, options) => {
     return runWithTimeout(async () => {
-      const [r] = await pool.execute('call get_saving_schemes_by_customer(?);', [customerGuid]);
+      const [r] = await pool.execute('call get_saving_schemes_by_customer(?);', sanitizeBinds([customerGuid]));
       return r;
     }, options?.timeoutMs);
   });
@@ -613,7 +624,7 @@ function registerIpcHandlers() {
 
   ipcMain.handle('karigar:getJobDetails', async (_event, jobGuid, options) => {
     return runWithTimeout(async () => {
-      const [r] = await pool.execute('call get_karigar_job_card_details(?);', [jobGuid]);
+      const [r] = await pool.execute('call get_karigar_job_card_details(?);', sanitizeBinds([jobGuid]));
       return r;
     }, options?.timeoutMs);
   });
@@ -689,7 +700,7 @@ function registerIpcHandlers() {
   // -- Auth: user permissions ---------------------------------------------
   ipcMain.handle('auth:getUserPermissions', async (_event, userId, options) => {
     return runWithTimeout(async () => {
-      const [r] = await pool.execute('call get_user_permissions(?);', [userId]);
+      const [r] = await pool.execute('call get_user_permissions(?);', sanitizeBinds([userId]));
       return r;
     }, options?.timeoutMs);
   });
@@ -899,7 +910,7 @@ function registerIpcHandlers() {
 
   ipcMain.handle('repair:getDetails', async (_event, ticketGuid, options) => {
     return runWithTimeout(async () => {
-      const [r] = await pool.execute('call get_repair_ticket_details(?);', [ticketGuid]);
+      const [r] = await pool.execute('call get_repair_ticket_details(?);', sanitizeBinds([ticketGuid]));
       return r;
     }, options?.timeoutMs);
   });
