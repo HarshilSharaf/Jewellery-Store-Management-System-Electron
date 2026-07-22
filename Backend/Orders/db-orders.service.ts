@@ -39,7 +39,7 @@ export class DbOrdersService implements OrdersServiceInterface {
 
   saveOrder(orderData: any) {
     return this.databaseService.execute(
-      "call save_order(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+      "call save_order(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
       [
         orderData.customerId,
         orderData.placeOfSupply,
@@ -61,15 +61,15 @@ export class DbOrdersService implements OrdersServiceInterface {
         orderData.paymentMethod ?? 'cash',
         orderData.paymentRefNumber ?? null,
         orderData.lineItems ? JSON.stringify(orderData.lineItems) : null,
-        orderData.oldGoldReceipts ? JSON.stringify(orderData.oldGoldReceipts) : null
+        orderData.oldGoldReceipts ? JSON.stringify(orderData.oldGoldReceipts) : null,
       ]
     );
   }
-
-  cancelOrder(orderGuid: string, cancelReason: string | null = null) {
-    return this.databaseService.execute("call cancel_order(?, ?);", [
+  cancelOrder(orderGuid: string, cancelReason: string | null = null, actorUserId: number | null = null) {
+    return this.databaseService.execute("call cancel_order(?, ?, ?);", [
       orderGuid,
-      cancelReason
+      cancelReason,
+      actorUserId
     ]);
   }
 

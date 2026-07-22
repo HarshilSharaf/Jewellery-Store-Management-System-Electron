@@ -28,9 +28,13 @@ TABLES=(
   "AuditLog.sql"
   "SavingSchemes.sql"
   "SavingSchemeInstallments.sql"
+  "Karigars.sql"
   "KarigarJobCards.sql"
   "KarigarLedger.sql"
   "StockMovements.sql"
+  "RepairTickets.sql"
+  "WhatsAppSendLog.sql"
+  "IbjaRateSnapshots.sql"
 )
 
 for file in "${TABLES[@]}"; do

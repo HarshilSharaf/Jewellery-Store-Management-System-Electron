@@ -2,10 +2,12 @@ DROP procedure IF EXISTS `cancel_order`;
 DELIMITER $$
 CREATE PROCEDURE `cancel_order` (
   IN p_orderGuid    CHAR(36),
-  IN p_cancelReason VARCHAR(255)
+  IN p_cancelReason VARCHAR(255),
+  IN p_actorUserId  INT
 )
 BEGIN
   DECLARE l_invoiceId INT DEFAULT NULL;
+  DECLARE l_actor_type VARCHAR(50) DEFAULT NULL;
 
   DECLARE error_code INT DEFAULT 0;
   DECLARE error_msg VARCHAR(255) DEFAULT '';
@@ -13,10 +15,18 @@ BEGIN
   BEGIN
     ROLLBACK;
     GET STACKED DIAGNOSTICS CONDITION 1 error_code = MYSQL_ERRNO, error_msg = MESSAGE_TEXT;
-    SELECT CONCAT('Error: ', error_code, ', ', error_msg) AS message;
+    RESIGNAL;
   END;
 
   SET time_zone = 'SYSTEM';
+
+  IF p_actorUserId IS NOT NULL THEN
+    SELECT `type` INTO l_actor_type FROM users WHERE uid = p_actorUserId;
+    IF l_actor_type IS NOT NULL AND l_actor_type = 'employee' THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Forbidden: canCancelInvoice';
+    END IF;
+  END IF;
+
   SET l_invoiceId = (SELECT id FROM invoices WHERE invoiceGuid = p_orderGuid);
 
   IF l_invoiceId IS NOT NULL THEN
@@ -34,7 +44,7 @@ BEGIN
        WHERE id = l_invoiceId;
 
       INSERT INTO auditlog (actorUserId, action, entity, entityId, after)
-      VALUES (NULL, 'cancel_order', 'invoices', CAST(l_invoiceId AS CHAR),
+      VALUES (p_actorUserId, 'cancel_order', 'invoices', CAST(l_invoiceId AS CHAR),
               JSON_OBJECT('cancelReason', p_cancelReason));
     COMMIT;
   END IF;

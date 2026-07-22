@@ -1,15 +1,20 @@
--- P2 stub. DDL only. No SPs or UI in Phase 1.
 CREATE TABLE `savingschemes` (
   `id` INT NOT NULL AUTO_INCREMENT,
   `schemeGuid` CHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
   `customerId` INT NOT NULL,
-  `name` VARCHAR(120) NOT NULL,
+  `planName` VARCHAR(120) NOT NULL,
   `monthlyAmount` DECIMAL(12, 2) NOT NULL,
-  `durationMonths` SMALLINT NOT NULL,
+  `tenureMonths` SMALLINT NOT NULL DEFAULT 11,
+  `bonusInstallments` SMALLINT NOT NULL DEFAULT 1,
   `startDate` DATE NOT NULL,
-  `maturityDate` DATE NOT NULL,
-  `bonusPercent` DECIMAL(5, 2) NOT NULL DEFAULT 0.00,
-  `status` ENUM('active', 'matured', 'redeemed', 'cancelled') NOT NULL DEFAULT 'active',
+  `expectedMaturityDate` DATE NOT NULL,
+  `totalPaid` DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+  `status` ENUM('active', 'matured', 'redeemed', 'forfeited') NOT NULL DEFAULT 'active',
+  `redeemedInvoiceId` INT DEFAULT NULL,
+  `redeemedAmount` DECIMAL(14, 2) DEFAULT NULL,
+  `redeemedAt` DATETIME DEFAULT NULL,
+  `forfeitedAt` DATETIME DEFAULT NULL,
+  `forfeitReason` VARCHAR(255) DEFAULT NULL,
   `createdAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updatedAt` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `deletedAt` DATETIME DEFAULT NULL,
@@ -17,5 +22,7 @@ CREATE TABLE `savingschemes` (
   UNIQUE KEY `uk_savingschemes_schemeGuid` (`schemeGuid`),
   KEY `idx_savingschemes_customerId` (`customerId`),
   KEY `idx_savingschemes_status` (`status`),
-  CONSTRAINT `fk_savingschemes_customer` FOREIGN KEY (`customerId`) REFERENCES `customers` (`id`) ON UPDATE CASCADE
+  KEY `idx_savingschemes_startDate` (`startDate`),
+  CONSTRAINT `fk_savingschemes_customer` FOREIGN KEY (`customerId`) REFERENCES `customers` (`id`) ON UPDATE CASCADE,
+  CONSTRAINT `fk_savingschemes_invoice`  FOREIGN KEY (`redeemedInvoiceId`) REFERENCES `invoices` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

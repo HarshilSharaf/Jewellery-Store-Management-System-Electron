@@ -13,6 +13,14 @@
       "root": "",
       "sourceRoot": "client",
       "prefix": "app",
+      "i18n": {
+        "sourceLocale": "en-IN",
+        "locales": {
+          "hi": "client/locale/messages.hi.xlf",
+          "gu": "client/locale/messages.gu.xlf",
+          "mr": "client/locale/messages.mr.xlf"
+        }
+      },
       "architect": {
         "build": {
           "builder": "@angular-devkit/build-angular:application",
@@ -36,8 +44,6 @@
               {"glob": "splashscreen.js", "input": "Backend/Shared/", "output": "/assets/splashscreens/"}
             ],
             "styles": [
-              "./node_modules/animate.css/animate.min.css",
-              "./node_modules/@fortawesome/fontawesome-free/css/all.min.css",
               "client/styles.scss"
             ],
             "scripts": [
@@ -50,21 +56,37 @@
                 {
                   "type": "initial",
                   "maximumWarning": "500kb",
-                  "maximumError": "10mb"
+                  "maximumError": "750kb"
                 },
                 {
                   "type": "anyComponentStyle",
-                  "maximumWarning": "4kb",
-                  "maximumError": "8kb"
+                  "maximumWarning": "6kb",
+                  "maximumError": "16kb"
                 }
               ],
-              "outputHashing": "all"
+              "optimization": true,
+              "outputHashing": "all",
+              "sourceMap": false,
+              "namedChunks": false,
+              "extractLicenses": true
             },
             "development": {
               "optimization": false,
               "extractLicenses": false,
               "sourceMap": true,
               "namedChunks": true
+            },
+            "hi": {
+              "localize": ["hi"],
+              "outputPath": "dist/hi"
+            },
+            "gu": {
+              "localize": ["gu"],
+              "outputPath": "dist/gu"
+            },
+            "mr": {
+              "localize": ["mr"],
+              "outputPath": "dist/mr"
             }
           },
           "defaultConfiguration": "production"
@@ -91,6 +113,7 @@
           "builder": "@angular-devkit/build-angular:karma",
           "options": {
             "polyfills": [
+              "@angular/localize/init",
               "zone.js",
               "zone.js/testing"
             ],

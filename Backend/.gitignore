@@ -1,0 +1,5 @@
+# Backup archives created by Backend/Shared/backup.service.ts should never be
+# committed. They are AES-encrypted but still contain live shop data.
+*.enc
+backup-*.sql
+backup-*.sql.enc

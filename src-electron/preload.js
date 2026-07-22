@@ -31,6 +31,93 @@ contextBridge.exposeInMainWorld('electronAPI', {
     save: (payload, options) => ipcRenderer.invoke('shopSettings:save', payload, options),
   },
 
+  oldGold: {
+    saveReceipt:           (payload, options)      => ipcRenderer.invoke('oldGold:saveReceipt', payload, options),
+    getReceiptsByCustomer: (customerGuid, options) => ipcRenderer.invoke('oldGold:getReceiptsByCustomer', customerGuid, options),
+    getReceiptByInvoice:   (invoiceGuid, options)  => ipcRenderer.invoke('oldGold:getReceiptByInvoice', invoiceGuid, options),
+  },
+
+  savingSchemes: {
+    enroll:            (payload, options)      => ipcRenderer.invoke('savingSchemes:enroll', payload, options),
+    recordInstallment: (payload, options)      => ipcRenderer.invoke('savingSchemes:recordInstallment', payload, options),
+    redeem:            (payload, options)      => ipcRenderer.invoke('savingSchemes:redeem', payload, options),
+    forfeit:           (payload, options)      => ipcRenderer.invoke('savingSchemes:forfeit', payload, options),
+    getDetails:        (schemeGuid, options)   => ipcRenderer.invoke('savingSchemes:getDetails', schemeGuid, options),
+    getAll:            (args, options)         => ipcRenderer.invoke('savingSchemes:getAll', args, options),
+    getByCustomer:     (customerGuid, options) => ipcRenderer.invoke('savingSchemes:getByCustomer', customerGuid, options),
+  },
+
+  karigar: {
+    addKarigar:      (payload, options)   => ipcRenderer.invoke('karigar:addKarigar', payload, options),
+    getAllKarigars:  (args, options)      => ipcRenderer.invoke('karigar:getAllKarigars', args, options),
+    updateKarigar:   (payload, options)   => ipcRenderer.invoke('karigar:updateKarigar', payload, options),
+    deleteKarigar:   (args, options)      => ipcRenderer.invoke('karigar:deleteKarigar', args, options),
+    issueJob:        (payload, options)   => ipcRenderer.invoke('karigar:issueJob', payload, options),
+    receiveJob:      (payload, options)   => ipcRenderer.invoke('karigar:receiveJob', payload, options),
+    settleJob:       (payload, options)   => ipcRenderer.invoke('karigar:settleJob', payload, options),
+    getJobDetails:   (jobGuid, options)   => ipcRenderer.invoke('karigar:getJobDetails', jobGuid, options),
+    getAllJobs:      (args, options)      => ipcRenderer.invoke('karigar:getAllJobs', args, options),
+    getLedger:       (args, options)      => ipcRenderer.invoke('karigar:getLedger', args, options),
+  },
+
+  reports: {
+    dayBook:              (args, options) => ipcRenderer.invoke('reports:dayBook', args, options),
+    salesRegister:        (args, options) => ipcRenderer.invoke('reports:salesRegister', args, options),
+    stockSummaryByPurity: (args, options) => ipcRenderer.invoke('reports:stockSummaryByPurity', args, options),
+    gstr1Export:          (args, options) => ipcRenderer.invoke('reports:gstr1Export', args, options),
+    lowStockByCategory:   (args, options) => ipcRenderer.invoke('reports:lowStockByCategory', args, options),
+  },
+
+  backup: {
+    create:  (payload) => ipcRenderer.invoke('backup:create',  payload),
+    restore: (payload) => ipcRenderer.invoke('backup:restore', payload),
+    list:    (payload) => ipcRenderer.invoke('backup:list',    payload),
+    delete:  (payload) => ipcRenderer.invoke('backup:delete',  payload),
+  },
+
+  repair: {
+    create:         (payload, options)      => ipcRenderer.invoke('repair:create',         payload, options),
+    updateStatus:   (payload, options)      => ipcRenderer.invoke('repair:updateStatus',   payload, options),
+    settle:         (payload, options)      => ipcRenderer.invoke('repair:settle',         payload, options),
+    linkToKarigar:  (payload, options)      => ipcRenderer.invoke('repair:linkToKarigar',  payload, options),
+    getDetails:     (ticketGuid, options)   => ipcRenderer.invoke('repair:getDetails',     ticketGuid, options),
+    getAll:         (args, options)         => ipcRenderer.invoke('repair:getAll',         args, options),
+    getByCustomer:  (customerGuid, options) => ipcRenderer.invoke('repair:getByCustomer',  customerGuid, options),
+    delete:         (payload, options)      => ipcRenderer.invoke('repair:delete',         payload, options),
+  },
+
+  whatsapp: {
+    send:           (payload)               => ipcRenderer.invoke('whatsapp:send',          payload),
+    updateStatus:   (payload, options)      => ipcRenderer.invoke('whatsapp:updateStatus',  payload, options),
+    getLog:         (args, options)         => ipcRenderer.invoke('whatsapp:getLog',        args, options),
+    getByCustomer:  (customerGuid, options) => ipcRenderer.invoke('whatsapp:getByCustomer', customerGuid, options),
+    getByInvoice:   (invoiceGuid, options)  => ipcRenderer.invoke('whatsapp:getByInvoice',  invoiceGuid, options),
+  },
+
+  ibja: {
+    fetchNow:        ()                  => ipcRenderer.invoke('ibja:fetchNow'),
+    getSnapshots:    (args, options)     => ipcRenderer.invoke('ibja:getSnapshots', args, options),
+    getScheduleInfo: ()                  => ipcRenderer.invoke('ibja:getScheduleInfo'),
+  },
+
+  dialog: {
+    chooseDirectory: (payload) => ipcRenderer.invoke('dialog:chooseDirectory', payload),
+  },
+
+  scale: {
+    getStatus:  ()        => ipcRenderer.invoke('scale:getStatus'),
+    listPorts:  ()        => ipcRenderer.invoke('scale:listPorts'),
+    open:       (payload) => ipcRenderer.invoke('scale:open', payload),
+    close:      ()        => ipcRenderer.invoke('scale:close'),
+    getReading: ()        => ipcRenderer.invoke('scale:getReading'),
+    onReading:  (callback) => {
+      if (typeof callback !== 'function') { return () => undefined; }
+      const listener = (_event, reading) => callback(reading);
+      ipcRenderer.on('scale:reading', listener);
+      return () => ipcRenderer.removeListener('scale:reading', listener);
+    },
+  },
+
   store: {
     get:              (key)        => ipcRenderer.invoke('store:get', key),
     set:              (key, value) => ipcRenderer.invoke('store:set', key, value),
@@ -39,8 +126,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   auth: {
-    compareHash:  (plaintext, hash) => ipcRenderer.invoke('auth:compareHash', plaintext, hash),
-    generateHash: (plaintext, rounds) => ipcRenderer.invoke('auth:generateHash', plaintext, rounds),
+    compareHash:        (plaintext, hash)   => ipcRenderer.invoke('auth:compareHash', plaintext, hash),
+    generateHash:       (plaintext, rounds) => ipcRenderer.invoke('auth:generateHash', plaintext, rounds),
+    getUserPermissions: (userId, options)   => ipcRenderer.invoke('auth:getUserPermissions', userId, options),
   },
 
   fs: {

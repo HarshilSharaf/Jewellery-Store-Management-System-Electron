@@ -1,10 +1,10 @@
 import { SettingsModel } from 'client/app/modules/settings/models/settings-model';
 import { StoreService } from './store.service';
-import { Injectable } from '@angular/core';
-import Swal from 'sweetalert2';
+import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { DatabaseServiceInterface } from 'client/app/interfaces/Shared/database-service-interface';
 import { LoggerService } from './logger.service';
+import { AppDialogService } from 'client/app/shared/services/AppDialog/app-dialog.service';
 
 /**
  * DEFAULT_QUERY_TIMEOUT_MS is applied to every execute() / query() call
@@ -37,6 +37,7 @@ export class DatabaseService implements DatabaseServiceInterface {
   public dbConnection: any;
   private dbConnectionInfo!: SettingsModel;
   private electronAPI: any = (window as any).electronAPI;
+  private dialog = inject(AppDialogService);
 
   constructor(
     private storeService: StoreService,
@@ -76,25 +77,22 @@ export class DatabaseService implements DatabaseServiceInterface {
   }
 
   showErrorAndRedirectToSettingsPage(error: any): void {
-    Swal.fire({
+    this.dialog.fire({
+      icon: 'error',
       title: 'Could Not Connect To Database!',
       html: `<span class="text-danger"> Error: ${error}
         <p class="text-warning my-2"> Redirecting to Settings Page...</p>
         </span>`,
       timer: 4000,
-      timerProgressBar: true,
-      allowEscapeKey: false,
-      allowOutsideClick: false,
-      didOpen: () => {
-        Swal.showLoading();
-      }
-    }).then((result) => {
-      if (result.dismiss === Swal.DismissReason.timer) {
-        this.router.navigate(['settings'], {
-          state: { error: error?.toString?.() ?? String(error) },
-        });
-      }
+      showConfirmButton: false,
+      disableEscape: true,
+      disableBackdropClose: true,
     });
+    setTimeout(() => {
+      this.router.navigate(['settings'], {
+        state: { error: error?.toString?.() ?? String(error) },
+      });
+    }, 4000);
   }
 
   /**

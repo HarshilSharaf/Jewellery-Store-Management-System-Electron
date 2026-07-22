@@ -14,6 +14,7 @@ CREATE TABLE `invoices` (
   `totalStoneCharge` DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
   `totalWastageCharge` DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
   `oldGoldCreditAmount` DECIMAL(14, 2) NOT NULL DEFAULT 0.00,
+  `savingSchemeRedemption` JSON DEFAULT NULL,
   `roundOffAmount` DECIMAL(6, 2) NOT NULL DEFAULT 0.00,
   `grandTotal` DECIMAL(14, 2) NOT NULL,
   `isPaymentDone` TINYINT(1) NOT NULL DEFAULT 0,

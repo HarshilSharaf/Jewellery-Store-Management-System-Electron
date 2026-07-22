@@ -6,16 +6,21 @@
 # Build:   docker build -t jewellery-db .
 # Run:     docker run --rm --env-file .env -p 3306:3306 jewellery-db
 # Compose: docker compose up -d   (compose points at this Dockerfile)
-FROM mysql:8.0
+#
+# MySQL 8.4 is the current LTS (Premier support through 2027-04, Extended
+# through 2032-04). MySQL 9.x is Innovation-track and NOT LTS — do not
+# retarget upward without re-checking Oracle's release policy.
+FROM mysql:8.4.6
 
 # Match the runtime uid/gid the base image expects.
 USER root
 
-# Populate the two directories the mysql:8.0 entrypoint consumes:
+# Populate the two directories the mysql:8.4 entrypoint consumes:
 #   /docker-entrypoint-initdb.d — scripts run on first container start
 #   /scripts                    — path that 01-init-db.sh reads .sql files from
-COPY docker/init/ /docker-entrypoint-initdb.d/
-COPY Scripts/    /scripts/
+COPY docker/init/  /docker-entrypoint-initdb.d/
+COPY docker/mysql.cnf /etc/mysql/conf.d/zz-jewellery.cnf
+COPY Scripts/     /scripts/
 
 # init script is bash; ensure LF line endings + executable bit even if the
 # repo was cloned with Windows line endings.
