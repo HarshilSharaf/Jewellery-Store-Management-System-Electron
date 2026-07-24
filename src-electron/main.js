@@ -109,6 +109,24 @@ function rawExec(sql, binds) {
   return [[], sqliteRouter.SENTINEL];
 }
 
+/**
+ * Shared routing for the generic db:execute / db:query channels. The renderer
+ * sends `call <proc>(?)` through BOTH (db:query for the param-less dashboard
+ * procs, db:execute for parameterised ones), so both must resolve against the
+ * SQLite proc registry; anything else is treated as raw SQL.
+ */
+function routeSql(sql, values) {
+  if (sqliteRouter.isHandled(sql)) {
+    try {
+      return sqliteRouter.tryExecute(sql, sanitize(values), () => sqliteDb.getDb());
+    } catch (err) {
+      logger.error(`[db] sqlite proc failed (${sqliteRouter.procName(sql)}):`, err);
+      throw err;
+    }
+  }
+  return rawExec(sql, values);
+}
+
 // ---------------------------------------------------------------------------
 // Windows
 // ---------------------------------------------------------------------------
@@ -212,19 +230,9 @@ function registerIpcHandlers() {
   // (which still calls it) keeps working unchanged.
   ipcMain.handle('db:initialize', async () => ({ ok: true }));
 
-  ipcMain.handle('db:execute', async (_event, sql, values) => {
-    if (sqliteRouter.isHandled(sql)) {
-      try {
-        return sqliteRouter.tryExecute(sql, sanitize(values), () => sqliteDb.getDb());
-      } catch (err) {
-        logger.error(`[db:execute] sqlite proc failed (${sqliteRouter.procName(sql)}):`, err);
-        throw err;
-      }
-    }
-    return rawExec(sql, values);
-  });
+  ipcMain.handle('db:execute', async (_event, sql, values) => routeSql(sql, values));
 
-  ipcMain.handle('db:query', async (_event, sql) => rawExec(sql));
+  ipcMain.handle('db:query', async (_event, sql) => routeSql(sql, []));
 
   // -- Metal rates ---------------------------------------------------------
   ipcMain.handle('metalRates:getCurrent', async () => proc('get_current_metal_rates', []));
