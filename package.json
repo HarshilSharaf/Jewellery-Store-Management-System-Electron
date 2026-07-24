@@ -11,6 +11,7 @@
         "watch": "ng build --watch --configuration development",
         "test": "ng test",
         "test:db": "node --test \"src-electron/db/**/*.test.js\"",
+        "seed:demo": "node src-electron/db/seed-demo.js",
         "dev": "ng serve",
         "electron": "electron .",
         "electron-dev": "concurrently \"ng serve\" \"npm run electron\"",

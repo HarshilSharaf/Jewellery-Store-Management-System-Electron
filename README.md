@@ -39,6 +39,21 @@ Use this for local installs and in CI. Only install a full native toolchain
 (Python 3 + Visual Studio Build Tools) if you specifically need to compile
 native modules from source.
 
+### Demo data (dev only)
+
+Populate a throwaway SQLite database with realistic customers, products,
+orders, schemes, karigar jobs and repairs (written through the real stored-
+procedure layer):
+
+```bash
+npm run seed:demo            # small set (default)
+npm run seed:demo -- large   # busy set for reports/dashboards
+```
+
+It writes to `./demo.db` (or `$ZEUS_DB_PATH`). Launch the app against it with
+`ZEUS_DB_PATH="<abs>/demo.db" npm run electron`. Never ship demo data in an
+installer.
+
 ## Documentation
 
 Full docs live under [`docs/`](./docs). Highlights:
