@@ -244,13 +244,6 @@ const createWindow = () => {
     logger.info('[main] Running in development');
     splashScreen.loadURL('http://localhost:4200/assets/splashscreens/splashscreen-1/index.html');
     mainWindow.loadURL('http://localhost:4200/');
-    // Auto-open DevTools in dev so preload / bootstrap errors surface. The
-    // main window is created with show:false, so without this any preload
-    // load error stays invisible until the app is unstuck. Env-gated so a
-    // developer running a prod smoke-test doesn't get DevTools.
-    if (process.env.ZEUS_DEVTOOLS !== '0') {
-      mainWindow.webContents.openDevTools({ mode: 'detach' });
-    }
   } else {
     logger.info('[main] Running in production');
     splashScreen.loadFile('./dist/browser/assets/splashscreens/splashscreen-1/index.html');
