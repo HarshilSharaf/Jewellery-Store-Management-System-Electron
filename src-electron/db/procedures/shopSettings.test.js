@@ -115,6 +115,20 @@ test('save_shop_settings: update branch mirrors SP quirk (city/addressLine1/emai
   } finally { cleanup(db); }
 });
 
+test('save_shop_settings: does NOT rewind the live invoice counter on update', () => {
+  const db = freshDb();
+  try {
+    // First save starts the counter at 100.
+    save_shop_settings(db, baseParams({ currentInvoiceCounter: 100 }));
+    // Simulate save_order advancing the live counter.
+    db.prepare('UPDATE shopsettings SET currentInvoiceCounter = 137 WHERE id = 1').run();
+    // A settings save carrying a stale/default counter (1) must NOT rewind it.
+    const [rows] = save_shop_settings(db, baseParams({ currentInvoiceCounter: 1, shopName: 'Edited' }));
+    assert.equal(rows[0].shopName, 'Edited', 'other fields still update');
+    assert.equal(rows[0].currentInvoiceCounter, 137, 'live counter preserved (not reset to 1)');
+  } finally { cleanup(db); }
+});
+
 test('reset_invoice_counter: sets both counters and returns them', () => {
   const db = freshDb();
   try {

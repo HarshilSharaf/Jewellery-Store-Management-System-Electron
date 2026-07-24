@@ -74,9 +74,18 @@ function reset_invoice_counter(db, params) {
  * save_shop_settings(...22 params, actorUserId)
  * Singleton upsert on id = 1. Params are positional in the SP's exact IN order.
  *
- * NOTE: the update branch intentionally mirrors the MySQL SP, which does NOT
- * refresh addressLine1, addressLine2, city or email on conflict (they are only
- * set on first insert). See risks in the porting notes.
+ * NOTE: the update branch mirrors the MySQL SP, which does NOT refresh
+ * addressLine1, addressLine2, city or email on conflict (they are only set on
+ * first insert).
+ *
+ * DELIBERATE DEVIATION from the SP: the update branch does NOT overwrite
+ * `currentInvoiceCounter`. The original SP set it to the caller's value on
+ * every save, so a settings save carrying a stale/default counter (e.g. 1)
+ * would rewind the live invoice sequence and produce DUPLICATE invoice numbers
+ * (a GST-compliance hazard, and it hard-fails the next sale on the UNIQUE
+ * constraint). The counter is operational state owned by save_order; it is set
+ * only on first insert here, and deliberate resets go through
+ * reset_invoice_counter.
  */
 function save_shop_settings(db, params) {
   const [
@@ -107,7 +116,8 @@ function save_shop_settings(db, params) {
         logoPath              = excluded.logoPath,
         invoicePrefix         = excluded.invoicePrefix,
         invoiceStartFrom      = excluded.invoiceStartFrom,
-        currentInvoiceCounter = excluded.currentInvoiceCounter,
+        -- currentInvoiceCounter intentionally NOT updated (see note above):
+        -- preserve the live sequence owned by save_order.
         defaultCurrency       = excluded.defaultCurrency,
         timezone              = excluded.timezone,
         roundOffEnabled       = excluded.roundOffEnabled,
