@@ -3,7 +3,7 @@
  *
  * This file owns:
  *   - the BrowserWindow lifecycle (splash + main window)
- *   - the mysql2 connection pool
+ *   - the embedded SQLite database (better-sqlite3, via ./db)
  *   - the electron-store instance
  *   - bcryptjs password hashing/compare
  *   - filesystem I/O for customer / product / user images
@@ -13,17 +13,20 @@
  * the channels registered here, exposed by src-electron/preload.js as
  * `window.electronAPI.*`. This is what makes `contextIsolation: true`,
  * `nodeIntegration: false`, and `webSecurity: true` viable.
+ *
+ * Data access: the renderer sends `call <proc>(?)` strings through db:execute
+ * (and a handful of named channels). ./db/router maps every proc to its
+ * better-sqlite3 implementation. There is no MySQL/mysql2 anymore.
  */
 
 const { app, BrowserWindow, ipcMain, dialog, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const mysql = require('mysql2/promise');
 const ElectronStore = require('electron-store');
 const logger = require('electron-log');
 
-// SQLite data layer. Phase 1: ported stored procedures are routed to SQLite
-// via db/router.js; unported procs and raw SQL still hit the mysql2 pool.
+// SQLite data layer. All stored procedures are ported to better-sqlite3 and
+// dispatched by db/router.js; there is no legacy pool fallback.
 const sqliteDb = require('./db');
 const sqliteRouter = require('./db/router');
 
@@ -64,132 +67,46 @@ function getBcrypt()          { if (!bcrypt)          bcrypt          = require(
 const isDev = !app.isPackaged;
 
 // ---------------------------------------------------------------------------
-// Environment resolution
-// ---------------------------------------------------------------------------
-// In production the packaged app will pick these up from the host env or
-// fall back to safe demo defaults. In development, users can `set` them in
-// their shell before `npm run electron` or use the docker-compose defaults.
-// We DO NOT pull in the `dotenv` package (out-of-scope per WORKSTREAM_SCOPE);
-// the `.env` file is only consumed by docker-compose.
-function readEnv(name, fallback) {
-  const v = process.env[name];
-  return (v && v.length) ? v : fallback;
-}
-
-const ENV_DB_HOST     = readEnv('MYSQL_HOST',     'localhost');
-const ENV_DB_PORT     = Number(readEnv('MYSQL_PORT', '3306'));
-const ENV_DB_NAME     = readEnv('MYSQL_DATABASE', 'jewellery');
-const ENV_DB_USER     = readEnv('MYSQL_USER',     'zeus_user');
-const ENV_DB_PASSWORD = readEnv('MYSQL_PASSWORD', 'zeus@123');
-
-if (!process.env.MYSQL_USER || !process.env.MYSQL_PASSWORD) {
-  logger.warn(
-    '[main] MYSQL_USER / MYSQL_PASSWORD not set in environment; falling ' +
-    'back to .env.example defaults. Set them via .env (docker) or your ' +
-    'shell before launching Electron in production.'
-  );
-}
-
-// ---------------------------------------------------------------------------
 // electron-store (owned by main; renderer talks to it over IPC)
 // ---------------------------------------------------------------------------
 const store = new ElectronStore();
 
 // ---------------------------------------------------------------------------
-// mysql2 pool (created lazily on first successful db:initialize call)
+// SQLite access helpers
 // ---------------------------------------------------------------------------
-let pool = null;
 
-// Event-driven pool-ready signal. Replaces the permanent 2 s setInterval
-// (`bootPoll`) that used to guard `scheduleNextIbjaFire`.
-let resolvePoolReady;
-const poolReady = new Promise((resolve) => { resolvePoolReady = resolve; });
+/** undefined -> null at the IPC boundary (better-sqlite3 rejects undefined). */
+function nnull(v) { return v === undefined ? null : v; }
+function sanitize(params) { return Array.isArray(params) ? params.map(nnull) : []; }
 
-async function createPool(config) {
-  // Close any previous pool so credentials changes take effect. Errors
-  // during close are logged but not thrown (a broken previous pool must
-  // not block re-initialization).
-  if (pool) {
-    try { await pool.end(); } catch (e) { logger.warn('[db] previous pool end failed:', e); }
-    pool = null;
+/**
+ * Runs a registered stored-procedure implementation by name and returns the
+ * mysql2-shaped envelope the renderer's flatten layer expects. Used by the
+ * named IPC channels (which know the proc up front).
+ */
+function proc(name, params) {
+  const res = sqliteRouter.runProc(name, sanitize(params), () => sqliteDb.getDb());
+  if (res === undefined) {
+    throw new Error(`No SQLite implementation registered for proc '${name}'`);
   }
-
-  pool = mysql.createPool({
-    host:                  config.host     || ENV_DB_HOST,
-    port:                  config.port     || ENV_DB_PORT,
-    user:                  config.user     || ENV_DB_USER,
-    password:              config.password || ENV_DB_PASSWORD,
-    database:              config.database || ENV_DB_NAME,
-    waitForConnections:    true,
-    // Single-shop single-user peaks at 2-3 concurrent queries; 4 is plenty
-    // and saves ~2-3 MB per unused pool slot.
-    connectionLimit:       4,
-    queueLimit:            0,
-    enableKeepAlive:       true,
-    keepAliveInitialDelay: 10_000,
-    // Release idle connections after 60 s so mysql server doesn't hold
-    // sockets open for the app lifetime.
-    idleTimeout:           60_000,
-  });
-
-  // Explicit listener so protocol drops (idle timeouts, MySQL server
-  // restarts, brief network blips) get logged. mysql2's pool automatically
-  // discards broken connections; this just makes the failure visible.
-  pool.on('error', (err) => {
-    logger.error('[db] pool error:', {
-      message: err.message,
-      code: err.code,
-      errno: err.errno,
-      sqlState: err.sqlState,
-    });
-  });
-
-  // Cheap smoke test so we surface bad creds immediately instead of on the
-  // first business query.
-  const conn = await pool.getConnection();
-  try {
-    await conn.ping();
-  } finally {
-    conn.release();
-  }
-
-  if (typeof resolvePoolReady === 'function') {
-    resolvePoolReady();
-    resolvePoolReady = null;
-  }
+  return res;
 }
 
 /**
- * mysql2 v3+ throws on `undefined` bind values ("Bind parameters must not
- * contain undefined"). Earlier versions silently coerced to NULL. Any
- * renderer-side payload with a missing optional field can trip this. We
- * coerce here so a single missing field can't crash a whole handler.
+ * Defensive fallback for any raw SQL the renderer might still send through
+ * db:execute / db:query that is NOT a registered `call proc()`. Runs it
+ * directly against SQLite and wraps the result in the same envelope. (In
+ * practice the renderer only sends registered procs.)
  */
-function sanitizeBinds(values) {
-  if (!Array.isArray(values)) { return []; }
-  return values.map((v) => (v === undefined ? null : v));
-}
-
-/**
- * Runs a callback against a fresh pool connection with a bounded timeout.
- * We wrap in a Promise.race rather than using the (non-standard) mysql2
- * `timeout` option because that option is inconsistently supported for
- * CALL statements against stored procs.
- */
-async function runWithTimeout(fn, timeoutMs) {
-  if (!pool) {
-    throw new Error('Database pool is not initialised. Call db:initialize first.');
+function rawExec(sql, binds) {
+  const db = sqliteDb.getDb();
+  const stmt = db.prepare(sql);
+  const args = sanitize(binds);
+  if (stmt.reader) {
+    return [args.length ? stmt.all(...args) : stmt.all(), sqliteRouter.SENTINEL];
   }
-  const ms = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 30_000;
-  let timer;
-  const timeoutPromise = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`Query timed out after ${ms}ms`)), ms);
-  });
-  try {
-    return await Promise.race([fn(), timeoutPromise]);
-  } finally {
-    clearTimeout(timer);
-  }
+  args.length ? stmt.run(...args) : stmt.run();
+  return [[], sqliteRouter.SENTINEL];
 }
 
 // ---------------------------------------------------------------------------
@@ -239,9 +156,6 @@ const createWindow = () => {
   // splash-close IPC drives the actual show. This kills the white flash
   // between splash-destroy and Angular first paint.
   mainWindow.once('ready-to-show', () => {
-    // Pre-paint only. The backgroundColor is already applied by Chromium;
-    // this event just guarantees we've hit "renderer is ready to paint"
-    // before splash-close triggers show.
     logger.info('[main] mainWindow ready-to-show; awaiting splash-close IPC.');
   });
 
@@ -272,8 +186,6 @@ const createWindow = () => {
 
   // Safety net: if the renderer never triggers close_splashscreen (preload
   // failed, network stall, etc.), notify the renderer, then force-show.
-  // 10s is the ops signal window; the user learns "something went wrong"
-  // rather than watching the splash disappear silently.
   const splashFallbackTimer = setTimeout(() => {
     logger.warn('[main] Splash fallback timer fired; forcing main window visible');
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -295,462 +207,221 @@ const createWindow = () => {
 // ---------------------------------------------------------------------------
 function registerIpcHandlers() {
   // -- DB --------------------------------------------------------------------
-  ipcMain.handle('db:initialize', async (_event, config) => {
-    try {
-      await createPool(config || {});
-      return { ok: true };
-    } catch (err) {
-      logger.error('[db:initialize] failed:', err);
-      return { ok: false, error: err.message };
-    }
-  });
+  // db:initialize is now a no-op: the SQLite handle is opened at startup and
+  // needs no credentials. Kept so the renderer's existing bootstrap path
+  // (which still calls it) keeps working unchanged.
+  ipcMain.handle('db:initialize', async () => ({ ok: true }));
 
-  ipcMain.handle('db:execute', async (_event, sql, values, options) => {
-    // Phase 1: route ported stored procedures to SQLite. Unported procs and
-    // raw SQL fall through to the legacy mysql2 pool below.
+  ipcMain.handle('db:execute', async (_event, sql, values) => {
     if (sqliteRouter.isHandled(sql)) {
       try {
-        return sqliteRouter.tryExecute(sql, values, () => sqliteDb.getDb());
+        return sqliteRouter.tryExecute(sql, sanitize(values), () => sqliteDb.getDb());
       } catch (err) {
         logger.error(`[db:execute] sqlite proc failed (${sqliteRouter.procName(sql)}):`, err);
         throw err;
       }
     }
-    return runWithTimeout(async () => {
-      const [results] = await pool.execute(sql, sanitizeBinds(values));
-      return results;
-    }, options?.timeoutMs);
+    return rawExec(sql, values);
   });
 
-  ipcMain.handle('db:query', async (_event, sql, options) => {
-    return runWithTimeout(async () => {
-      const [results] = await pool.query(sql);
-      return results;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('db:query', async (_event, sql) => rawExec(sql));
 
   // -- Metal rates ---------------------------------------------------------
-  // Thin, named channels for the two most-common shop-counter flows so the
-  // renderer never has to embed the SP name in a raw SQL string. Falls
-  // through to the same pool as db:execute.
-  ipcMain.handle('metalRates:getCurrent', async (_event, options) => {
-    const routed = sqliteRouter.runProc('get_current_metal_rates', [], () => sqliteDb.getDb());
-    if (routed !== undefined) { return routed; }
-    return runWithTimeout(async () => {
-      const [results] = await pool.query('call get_current_metal_rates();');
-      return results;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('metalRates:getCurrent', async () => proc('get_current_metal_rates', []));
 
-  ipcMain.handle('metalRates:save', async (_event, payload, options) => {
-    const params = [
-      payload?.effectiveDate,
-      payload?.session,
-      payload?.source ?? 'manual',
-      payload?.setByUserId ?? null,
-      JSON.stringify(payload?.rates ?? []),
-    ];
-    const routed = sqliteRouter.runProc('save_metal_rates', params, () => sqliteDb.getDb());
-    if (routed !== undefined) { return routed; }
-    return runWithTimeout(async () => {
-      const [results] = await pool.execute(
-        'call save_metal_rates(?, ?, ?, ?, ?);', sanitizeBinds(params),
-      );
-      return results;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('metalRates:save', async (_event, payload) => proc('save_metal_rates', [
+    payload?.effectiveDate,
+    payload?.session,
+    payload?.source ?? 'manual',
+    payload?.setByUserId ?? null,
+    JSON.stringify(payload?.rates ?? []),
+  ]));
 
   // -- Shop settings -------------------------------------------------------
-  ipcMain.handle('shopSettings:get', async (_event, options) => {
-    const routed = sqliteRouter.runProc('get_shop_settings', [], () => sqliteDb.getDb());
-    if (routed !== undefined) { return routed; }
-    return runWithTimeout(async () => {
-      const [results] = await pool.query('call get_shop_settings();');
-      return results;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('shopSettings:get', async () => proc('get_shop_settings', []));
 
-  ipcMain.handle('shopSettings:save', async (_event, payload, options) => {
-    const params = [
-      payload?.shopName,
-      payload?.gstin,
-      payload?.pan ?? null,
-      payload?.addressLine1,
-      payload?.addressLine2 ?? null,
-      payload?.city,
-      payload?.state,
-      payload?.stateCode,
-      payload?.pincode,
-      payload?.phone,
-      payload?.email ?? null,
-      payload?.logoPath ?? null,
-      payload?.invoicePrefix,
-      payload?.invoiceStartFrom,
-      payload?.currentInvoiceCounter,
-      payload?.defaultCurrency,
-      payload?.timezone,
-      payload?.roundOffEnabled ? 1 : 0,
-      payload?.backupDir ?? null,
-      payload?.defaultPrintVariant ?? 'a4',
-      payload?.typographyPreset ?? 'editorial',
-      payload?.actorUserId ?? null,
-    ];
-    const routed = sqliteRouter.runProc('save_shop_settings', params, () => sqliteDb.getDb());
-    if (routed !== undefined) { return routed; }
-    return runWithTimeout(async () => {
-      const [results] = await pool.execute(
-        'call save_shop_settings(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);',
-        sanitizeBinds(params),
-      );
-      return results;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('shopSettings:save', async (_event, payload) => proc('save_shop_settings', [
+    payload?.shopName,
+    payload?.gstin,
+    payload?.pan ?? null,
+    payload?.addressLine1,
+    payload?.addressLine2 ?? null,
+    payload?.city,
+    payload?.state,
+    payload?.stateCode,
+    payload?.pincode,
+    payload?.phone,
+    payload?.email ?? null,
+    payload?.logoPath ?? null,
+    payload?.invoicePrefix,
+    payload?.invoiceStartFrom,
+    payload?.currentInvoiceCounter,
+    payload?.defaultCurrency,
+    payload?.timezone,
+    payload?.roundOffEnabled ? 1 : 0,
+    payload?.backupDir ?? null,
+    payload?.defaultPrintVariant ?? 'a4',
+    payload?.typographyPreset ?? 'editorial',
+    payload?.actorUserId ?? null,
+  ]));
 
   // -- Old-gold receipts ---------------------------------------------------
-  ipcMain.handle('oldGold:saveReceipt', async (_event, payload, options) => {
-    return runWithTimeout(async () => {
-      const [results] = await pool.execute(
-        'call save_old_gold_receipt(?, ?, ?, ?, ?, ?, ?, ?, ?, ?);',
-        sanitizeBinds([
-          payload?.customerGuid,
-          payload?.invoiceGuid ?? null,
-          payload?.grossWeight,
-          payload?.testedPurityPercent ?? null,
-          payload?.testedPurityCode ?? null,
-          payload?.deductionPercent,
-          payload?.ratePerGram,
-          payload?.creditAmount,
-          payload?.remarks ?? null,
-          payload?.actorUserId ?? null,
-        ]),
-      );
-      return results;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('oldGold:saveReceipt', async (_event, payload) => proc('save_old_gold_receipt', [
+    payload?.customerGuid,
+    payload?.invoiceGuid ?? null,
+    payload?.grossWeight,
+    payload?.testedPurityPercent ?? null,
+    payload?.testedPurityCode ?? null,
+    payload?.deductionPercent,
+    payload?.ratePerGram,
+    payload?.creditAmount,
+    payload?.remarks ?? null,
+    payload?.actorUserId ?? null,
+  ]));
 
-  ipcMain.handle('oldGold:getReceiptsByCustomer', async (_event, customerGuid, options) => {
-    return runWithTimeout(async () => {
-      const [results] = await pool.execute(
-        'call get_old_gold_receipts_by_customer(?);', sanitizeBinds([customerGuid]));
-      return results;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('oldGold:getReceiptsByCustomer', async (_event, customerGuid) =>
+    proc('get_old_gold_receipts_by_customer', [customerGuid]));
 
-  ipcMain.handle('oldGold:getReceiptByInvoice', async (_event, invoiceGuid, options) => {
-    return runWithTimeout(async () => {
-      const [results] = await pool.execute(
-        'call get_old_gold_receipt_by_invoice(?);', sanitizeBinds([invoiceGuid]));
-      return results;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('oldGold:getReceiptByInvoice', async (_event, invoiceGuid) =>
+    proc('get_old_gold_receipt_by_invoice', [invoiceGuid]));
 
   // -- Saving schemes ------------------------------------------------------
-  ipcMain.handle('savingSchemes:enroll', async (_event, payload, options) => {
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute(
-        'call enroll_saving_scheme(?, ?, ?, ?, ?, ?);',
-        sanitizeBinds([
-          payload?.customerGuid,
-          payload?.planName,
-          payload?.monthlyAmount,
-          payload?.tenureMonths ?? 11,
-          payload?.bonusInstallments ?? 1,
-          payload?.actorUserId ?? null,
-        ]),
-      );
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('savingSchemes:enroll', async (_event, payload) => proc('enroll_saving_scheme', [
+    payload?.customerGuid,
+    payload?.planName,
+    payload?.monthlyAmount,
+    payload?.tenureMonths ?? 11,
+    payload?.bonusInstallments ?? 1,
+    payload?.actorUserId ?? null,
+  ]));
 
-  ipcMain.handle('savingSchemes:recordInstallment', async (_event, payload, options) => {
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute(
-        'call record_scheme_installment(?, ?, ?, ?, ?, ?, ?);',
-        sanitizeBinds([
-          payload?.schemeGuid,
-          payload?.amount,
-          payload?.paymentMode,
-          payload?.refNumber ?? null,
-          payload?.receiptDate ?? null,
-          payload?.actorUserId ?? null,
-          payload?.allowMultipleThisMonth ? 1 : 0,
-        ]),
-      );
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('savingSchemes:recordInstallment', async (_event, payload) => proc('record_scheme_installment', [
+    payload?.schemeGuid,
+    payload?.amount,
+    payload?.paymentMode,
+    payload?.refNumber ?? null,
+    payload?.receiptDate ?? null,
+    payload?.actorUserId ?? null,
+    payload?.allowMultipleThisMonth ? 1 : 0,
+  ]));
 
-  ipcMain.handle('savingSchemes:redeem', async (_event, payload, options) => {
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute(
-        'call redeem_saving_scheme(?, ?, ?);',
-        sanitizeBinds([payload?.schemeGuid, payload?.invoiceGuid, payload?.actorUserId ?? null]),
-      );
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('savingSchemes:redeem', async (_event, payload) => proc('redeem_saving_scheme', [
+    payload?.schemeGuid, payload?.invoiceGuid, payload?.actorUserId ?? null,
+  ]));
 
-  ipcMain.handle('savingSchemes:forfeit', async (_event, payload, options) => {
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute(
-        'call forfeit_saving_scheme(?, ?, ?);',
-        sanitizeBinds([payload?.schemeGuid, payload?.reason, payload?.actorUserId ?? null]),
-      );
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('savingSchemes:forfeit', async (_event, payload) => proc('forfeit_saving_scheme', [
+    payload?.schemeGuid, payload?.reason, payload?.actorUserId ?? null,
+  ]));
 
-  ipcMain.handle('savingSchemes:getDetails', async (_event, schemeGuid, options) => {
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute('call get_saving_scheme_details(?);', sanitizeBinds([schemeGuid]));
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('savingSchemes:getDetails', async (_event, schemeGuid) =>
+    proc('get_saving_scheme_details', [schemeGuid]));
 
-  ipcMain.handle('savingSchemes:getAll', async (_event, args, options) => {
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute(
-        'call get_all_saving_schemes(?, ?, ?, ?);',
-        sanitizeBinds([
-          args?.itemsPerPage ?? 20,
-          args?.pageNumber ?? 1,
-          args?.statusFilter ?? null,
-          args?.searchQuery ?? '',
-        ]),
-      );
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('savingSchemes:getAll', async (_event, args) => proc('get_all_saving_schemes', [
+    args?.itemsPerPage ?? 20,
+    args?.pageNumber ?? 1,
+    args?.statusFilter ?? null,
+    args?.searchQuery ?? '',
+  ]));
 
-  ipcMain.handle('savingSchemes:getByCustomer', async (_event, customerGuid, options) => {
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute('call get_saving_schemes_by_customer(?);', sanitizeBinds([customerGuid]));
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('savingSchemes:getByCustomer', async (_event, customerGuid) =>
+    proc('get_saving_schemes_by_customer', [customerGuid]));
 
   // -- Karigar -------------------------------------------------------------
-  ipcMain.handle('karigar:addKarigar', async (_event, payload, options) => {
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute(
-        'call add_karigar(?, ?, ?, ?, ?);',
-        sanitizeBinds([
-          payload?.name,
-          payload?.phone ?? null,
-          payload?.address ?? null,
-          payload?.remarks ?? null,
-          payload?.actorUserId ?? null,
-        ]),
-      );
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('karigar:addKarigar', async (_event, payload) => proc('add_karigar', [
+    payload?.name, payload?.phone ?? null, payload?.address ?? null,
+    payload?.remarks ?? null, payload?.actorUserId ?? null,
+  ]));
 
-  ipcMain.handle('karigar:getAllKarigars', async (_event, args, options) => {
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute(
-        'call get_all_karigars(?, ?, ?);',
-        sanitizeBinds([args?.itemsPerPage ?? 20, args?.pageNumber ?? 1, args?.searchQuery ?? '']),
-      );
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('karigar:getAllKarigars', async (_event, args) => proc('get_all_karigars', [
+    args?.itemsPerPage ?? 20, args?.pageNumber ?? 1, args?.searchQuery ?? '',
+  ]));
 
-  ipcMain.handle('karigar:updateKarigar', async (_event, payload, options) => {
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute(
-        'call update_karigar(?, ?, ?, ?, ?, ?);',
-        sanitizeBinds([
-          payload?.karigarGuid,
-          payload?.name,
-          payload?.phone ?? null,
-          payload?.address ?? null,
-          payload?.remarks ?? null,
-          payload?.actorUserId ?? null,
-        ]),
-      );
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('karigar:updateKarigar', async (_event, payload) => proc('update_karigar', [
+    payload?.karigarGuid, payload?.name, payload?.phone ?? null,
+    payload?.address ?? null, payload?.remarks ?? null, payload?.actorUserId ?? null,
+  ]));
 
-  ipcMain.handle('karigar:deleteKarigar', async (_event, args, options) => {
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute(
-        'call delete_karigar(?, ?);',
-        sanitizeBinds([args?.karigarGuid, args?.actorUserId ?? null]),
-      );
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('karigar:deleteKarigar', async (_event, args) => proc('delete_karigar', [
+    args?.karigarGuid, args?.actorUserId ?? null,
+  ]));
 
-  ipcMain.handle('karigar:issueJob', async (_event, payload, options) => {
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute(
-        'call issue_karigar_job(?, ?, ?, ?, ?, ?, ?, ?);',
-        sanitizeBinds([
-          payload?.karigarGuid,
-          payload?.issueDate ?? null,
-          payload?.issuedGrossWeight,
-          payload?.issuedPurityCode ?? null,
-          payload?.issuedStones ? JSON.stringify(payload.issuedStones) : null,
-          payload?.expectedReturnDate ?? null,
-          payload?.description ?? null,
-          payload?.actorUserId ?? null,
-        ]),
-      );
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('karigar:issueJob', async (_event, payload) => proc('issue_karigar_job', [
+    payload?.karigarGuid,
+    payload?.issueDate ?? null,
+    payload?.issuedGrossWeight,
+    payload?.issuedPurityCode ?? null,
+    payload?.issuedStones ? JSON.stringify(payload.issuedStones) : null,
+    payload?.expectedReturnDate ?? null,
+    payload?.description ?? null,
+    payload?.actorUserId ?? null,
+  ]));
 
-  ipcMain.handle('karigar:receiveJob', async (_event, payload, options) => {
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute(
-        'call receive_karigar_job(?, ?, ?, ?, ?, ?, ?, ?, ?, ?);',
-        sanitizeBinds([
-          payload?.jobGuid,
-          payload?.receivedDate ?? null,
-          payload?.receivedGrossWeight,
-          payload?.receivedNetWeight,
-          payload?.receivedStoneWeight ?? 0,
-          payload?.wastagePercentAllowed ?? 0,
-          payload?.wastageGramsActual ?? 0,
-          payload?.makingCharge ?? 0,
-          payload?.remarks ?? null,
-          payload?.actorUserId ?? null,
-        ]),
-      );
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('karigar:receiveJob', async (_event, payload) => proc('receive_karigar_job', [
+    payload?.jobGuid,
+    payload?.receivedDate ?? null,
+    payload?.receivedGrossWeight,
+    payload?.receivedNetWeight,
+    payload?.receivedStoneWeight ?? 0,
+    payload?.wastagePercentAllowed ?? 0,
+    payload?.wastageGramsActual ?? 0,
+    payload?.makingCharge ?? 0,
+    payload?.remarks ?? null,
+    payload?.actorUserId ?? null,
+  ]));
 
-  ipcMain.handle('karigar:settleJob', async (_event, payload, options) => {
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute(
-        'call settle_karigar_job(?, ?, ?, ?, ?);',
-        sanitizeBinds([
-          payload?.jobGuid,
-          payload?.settlementAmount,
-          payload?.paymentMode,
-          payload?.refNumber ?? null,
-          payload?.actorUserId ?? null,
-        ]),
-      );
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('karigar:settleJob', async (_event, payload) => proc('settle_karigar_job', [
+    payload?.jobGuid, payload?.settlementAmount, payload?.paymentMode,
+    payload?.refNumber ?? null, payload?.actorUserId ?? null,
+  ]));
 
-  ipcMain.handle('karigar:getJobDetails', async (_event, jobGuid, options) => {
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute('call get_karigar_job_card_details(?);', sanitizeBinds([jobGuid]));
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('karigar:getJobDetails', async (_event, jobGuid) =>
+    proc('get_karigar_job_card_details', [jobGuid]));
 
-  ipcMain.handle('karigar:getAllJobs', async (_event, args, options) => {
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute(
-        'call get_all_karigar_jobs(?, ?, ?, ?);',
-        sanitizeBinds([
-          args?.itemsPerPage ?? 20,
-          args?.pageNumber ?? 1,
-          args?.karigarGuid ?? null,
-          args?.statusFilter ?? null,
-        ]),
-      );
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('karigar:getAllJobs', async (_event, args) => proc('get_all_karigar_jobs', [
+    args?.itemsPerPage ?? 20, args?.pageNumber ?? 1,
+    args?.karigarGuid ?? null, args?.statusFilter ?? null,
+  ]));
 
-  ipcMain.handle('karigar:getLedger', async (_event, args, options) => {
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute(
-        'call get_karigar_ledger(?, ?, ?);',
-        sanitizeBinds([args?.karigarGuid, args?.dateFrom ?? null, args?.dateTo ?? null]),
-      );
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('karigar:getLedger', async (_event, args) => proc('get_karigar_ledger', [
+    args?.karigarGuid, args?.dateFrom ?? null, args?.dateTo ?? null,
+  ]));
 
   // -- Reports -------------------------------------------------------------
-  ipcMain.handle('reports:dayBook', async (_event, args, options) => {
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute(
-        'call get_day_book(?, ?);', sanitizeBinds([args?.dateFrom, args?.dateTo]));
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('reports:dayBook', async (_event, args) =>
+    proc('get_day_book', [args?.dateFrom, args?.dateTo]));
 
-  ipcMain.handle('reports:salesRegister', async (_event, args, options) => {
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute(
-        'call get_sales_register(?, ?, ?, ?);',
-        sanitizeBinds([args?.dateFrom, args?.dateTo, args?.customerGuid ?? null, args?.statusFilter ?? null]),
-      );
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('reports:salesRegister', async (_event, args) => proc('get_sales_register', [
+    args?.dateFrom, args?.dateTo, args?.customerGuid ?? null, args?.statusFilter ?? null,
+  ]));
 
-  ipcMain.handle('reports:stockSummaryByPurity', async (_event, args, options) => {
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute(
-        'call get_stock_summary_by_purity(?);', sanitizeBinds([args?.asOfDate ?? null]));
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('reports:stockSummaryByPurity', async (_event, args) =>
+    proc('get_stock_summary_by_purity', [args?.asOfDate ?? null]));
 
-  ipcMain.handle('reports:gstr1Export', async (_event, args, options) => {
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute(
-        'call get_gstr1_export_rows(?);', sanitizeBinds([args?.monthYear ?? null]));
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('reports:gstr1Export', async (_event, args) =>
+    proc('get_gstr1_export_rows', [args?.monthYear ?? null]));
 
-  ipcMain.handle('reports:lowStockByCategory', async (_event, args, options) => {
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute(
-        'call get_low_stock_by_category(?);', sanitizeBinds([args?.thresholdCount ?? 3]));
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('reports:lowStockByCategory', async (_event, args) =>
+    proc('get_low_stock_by_category', [args?.thresholdCount ?? 3]));
 
   // -- Auth: user permissions ---------------------------------------------
-  ipcMain.handle('auth:getUserPermissions', async (_event, userId, options) => {
-    const routed = sqliteRouter.runProc('get_user_permissions', [userId], () => sqliteDb.getDb());
-    if (routed !== undefined) { return routed; }
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute('call get_user_permissions(?);', sanitizeBinds([userId]));
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('auth:getUserPermissions', async (_event, userId) =>
+    proc('get_user_permissions', [userId]));
 
   // -- Backup + restore ----------------------------------------------------
-  async function currentDbConfig() {
-    return {
-      host:     ENV_DB_HOST,
-      port:     ENV_DB_PORT,
-      database: ENV_DB_NAME,
-      user:     ENV_DB_USER,
-      password: ENV_DB_PASSWORD,
-    };
-  }
-
-  async function currentBackupDir(argDir) {
+  function currentBackupDir(argDir) {
     if (typeof argDir === 'string' && argDir.length) { return argDir; }
     try {
-      if (pool) {
-        const [rows] = await pool.query('SELECT backupDir FROM shopsettings WHERE id = 1;');
-        if (rows && rows[0] && rows[0].backupDir) { return rows[0].backupDir; }
-      }
+      const row = sqliteDb.getDb().prepare('SELECT backupDir FROM shopsettings WHERE id = 1').get();
+      if (row && row.backupDir) { return row.backupDir; }
     } catch (_) { /* fall through */ }
     return path.join(app.getPath('userData'), 'backups');
   }
 
   ipcMain.handle('backup:create', async (_event, payload) => {
-    const cfg = { ...(await currentDbConfig()), ...(payload?.dbConfig || {}) };
-    const dir = await currentBackupDir(payload?.targetDir);
+    const dir = currentBackupDir(payload?.targetDir);
     try {
-      const result = await getBackupService().createBackup(cfg, payload?.passphrase, dir);
+      const result = await getBackupService().createBackup(
+        sqliteDb.resolveDbPath(), payload?.passphrase, dir);
       return { ok: true, result };
     } catch (err) {
       logger.error('[backup:create] failed:', err);
@@ -759,18 +430,23 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('backup:restore', async (_event, payload) => {
-    const cfg = { ...(await currentDbConfig()), ...(payload?.dbConfig || {}) };
+    const dbPath = sqliteDb.resolveDbPath();
     try {
-      await getBackupService().restoreBackup(cfg, payload?.archivePath, payload?.passphrase);
+      // Close the live handle so the file can be swapped, then reopen. The
+      // renderer typically triggers app:relaunch after a successful restore.
+      sqliteDb.closeDatabase();
+      await getBackupService().restoreBackup(dbPath, payload?.archivePath, payload?.passphrase);
+      sqliteDb.initDatabase();
       return { ok: true };
     } catch (err) {
       logger.error('[backup:restore] failed:', err);
+      try { sqliteDb.initDatabase(); } catch (_) { /* best effort reopen */ }
       return { ok: false, error: err.message };
     }
   });
 
   ipcMain.handle('backup:list', async (_event, payload) => {
-    const dir = await currentBackupDir(payload?.backupDir);
+    const dir = currentBackupDir(payload?.backupDir);
     try {
       const entries = await getBackupService().listBackups(dir);
       return { ok: true, entries, backupDir: dir };
@@ -812,9 +488,7 @@ function registerIpcHandlers() {
   });
 
   // -- Weighing scale (RS-232 via serialport) -------------------------------
-  ipcMain.handle('scale:getStatus', async () => {
-    return getScaleService().status();
-  });
+  ipcMain.handle('scale:getStatus', async () => getScaleService().status());
 
   ipcMain.handle('scale:listPorts', async () => {
     try {
@@ -854,134 +528,78 @@ function registerIpcHandlers() {
     }
   });
 
-  ipcMain.handle('scale:getReading', async () => {
-    return getScaleService().getReading();
-  });
+  ipcMain.handle('scale:getReading', async () => getScaleService().getReading());
 
   // -- Repair tickets ------------------------------------------------------
-  ipcMain.handle('repair:create', async (_event, payload, options) => {
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute(
-        'call create_repair_ticket(?, ?, ?, ?, ?, ?, ?, ?, ?);',
-        sanitizeBinds([
-          payload?.customerGuid,
-          payload?.receivedByUserId ?? null,
-          payload?.itemDescription,
-          payload?.itemPhotoPath ?? null,
-          payload?.weight ?? null,
-          payload?.estimatedCharge ?? null,
-          payload?.estimatedReturnDate ?? null,
-          payload?.notes ?? null,
-          payload?.karigarGuid ?? null,
-        ]),
-      );
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('repair:create', async (_event, payload) => proc('create_repair_ticket', [
+    payload?.customerGuid,
+    payload?.receivedByUserId ?? null,
+    payload?.itemDescription,
+    payload?.itemPhotoPath ?? null,
+    payload?.weight ?? null,
+    payload?.estimatedCharge ?? null,
+    payload?.estimatedReturnDate ?? null,
+    payload?.notes ?? null,
+    payload?.karigarGuid ?? null,
+  ]));
 
-  ipcMain.handle('repair:updateStatus', async (_event, payload, options) => {
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute(
-        'call update_repair_status(?, ?, ?, ?, ?, ?);',
-        sanitizeBinds([
-          payload?.ticketGuid,
-          payload?.newStatus,
-          payload?.actorUserId ?? null,
-          payload?.actualCharge ?? null,
-          payload?.paymentMode ?? null,
-          payload?.paymentRef ?? null,
-        ]),
-      );
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('repair:updateStatus', async (_event, payload) => proc('update_repair_status', [
+    payload?.ticketGuid,
+    payload?.newStatus,
+    payload?.actorUserId ?? null,
+    payload?.actualCharge ?? null,
+    payload?.paymentMode ?? null,
+    payload?.paymentRef ?? null,
+  ]));
 
-  ipcMain.handle('repair:settle', async (_event, payload, options) => {
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute(
-        'call settle_repair_ticket(?, ?, ?, ?, ?);',
-        sanitizeBinds([
-          payload?.ticketGuid,
-          payload?.actualCharge,
-          payload?.paymentMode,
-          payload?.paymentRef ?? null,
-          payload?.actorUserId ?? null,
-        ]),
-      );
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('repair:settle', async (_event, payload) => proc('settle_repair_ticket', [
+    payload?.ticketGuid,
+    payload?.actualCharge,
+    payload?.paymentMode,
+    payload?.paymentRef ?? null,
+    payload?.actorUserId ?? null,
+  ]));
 
-  ipcMain.handle('repair:linkToKarigar', async (_event, payload, options) => {
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute(
-        'call link_repair_to_karigar(?, ?, ?, ?);',
-        sanitizeBinds([
-          payload?.ticketGuid,
-          payload?.karigarGuid,
-          payload?.karigarJobGuid ?? null,
-          payload?.actorUserId ?? null,
-        ]),
-      );
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('repair:linkToKarigar', async (_event, payload) => proc('link_repair_to_karigar', [
+    payload?.ticketGuid,
+    payload?.karigarGuid,
+    payload?.karigarJobGuid ?? null,
+    payload?.actorUserId ?? null,
+  ]));
 
-  ipcMain.handle('repair:getDetails', async (_event, ticketGuid, options) => {
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute('call get_repair_ticket_details(?);', sanitizeBinds([ticketGuid]));
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('repair:getDetails', async (_event, ticketGuid) =>
+    proc('get_repair_ticket_details', [ticketGuid]));
 
-  ipcMain.handle('repair:getAll', async (_event, args, options) => {
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute(
-        'call get_all_repair_tickets(?, ?, ?, ?, ?, ?);',
-        sanitizeBinds([
-          args?.status ?? null,
-          args?.customerSearch ?? null,
-          args?.dateFrom ?? null,
-          args?.dateTo ?? null,
-          args?.pageSize ?? 20,
-          args?.page ?? 1,
-        ]),
-      );
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('repair:getAll', async (_event, args) => proc('get_all_repair_tickets', [
+    args?.status ?? null,
+    args?.customerSearch ?? null,
+    args?.dateFrom ?? null,
+    args?.dateTo ?? null,
+    args?.pageSize ?? 20,
+    args?.page ?? 1,
+  ]));
 
-  ipcMain.handle('repair:getByCustomer', async (_event, customerGuid, options) => {
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute(
-        'call get_repair_tickets_by_customer(?);', sanitizeBinds([customerGuid]));
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('repair:getByCustomer', async (_event, customerGuid) =>
+    proc('get_repair_tickets_by_customer', [customerGuid]));
 
-  ipcMain.handle('repair:delete', async (_event, payload, options) => {
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute(
-        'call delete_repair_ticket(?, ?);',
-        sanitizeBinds([payload?.ticketGuid, payload?.actorUserId ?? null]),
-      );
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('repair:delete', async (_event, payload) => proc('delete_repair_ticket', [
+    payload?.ticketGuid, payload?.actorUserId ?? null,
+  ]));
 
   // -- WhatsApp -----------------------------------------------------------
-  async function readWhatsappConfig() {
-    if (!pool) return null;
-    const [rows] = await pool.query(
-      'SELECT whatsappPhoneNumberId, whatsappBusinessAccountId, whatsappApiToken, whatsappEnabled ' +
-      'FROM shopsettings WHERE id = 1;'
-    );
-    return (rows && rows[0]) ? rows[0] : null;
+  function readWhatsappConfig() {
+    try {
+      return sqliteDb.getDb().prepare(
+        'SELECT whatsappPhoneNumberId, whatsappBusinessAccountId, whatsappApiToken, whatsappEnabled '
+        + 'FROM shopsettings WHERE id = 1'
+      ).get() || null;
+    } catch (_) {
+      return null;
+    }
   }
 
   ipcMain.handle('whatsapp:send', async (_event, payload) => {
-    if (!pool) return { ok: false, error: 'db_not_initialised' };
-    const cfg = await readWhatsappConfig();
+    const cfg = readWhatsappConfig();
     if (!cfg || !cfg.whatsappEnabled) {
       return { ok: false, error: 'not_configured' };
     }
@@ -989,19 +607,16 @@ function registerIpcHandlers() {
     // Queue the send row first so we always have an audit trail.
     let sendGuid = null;
     try {
-      const [queued] = await pool.execute(
-        'call queue_whatsapp_send(?, ?, ?, ?, ?, ?, ?, ?);',
-        sanitizeBinds([
-          payload?.invoiceGuid ?? null,
-          payload?.customerGuid,
-          payload?.templateName,
-          payload?.templateLanguage ?? 'en',
-          payload?.templateVariables ? JSON.stringify(payload.templateVariables) : null,
-          payload?.attachmentUrl ?? null,
-          payload?.phoneNumber,
-          payload?.sentByUserId ?? null,
-        ]),
-      );
+      const queued = proc('queue_whatsapp_send', [
+        payload?.invoiceGuid ?? null,
+        payload?.customerGuid,
+        payload?.templateName,
+        payload?.templateLanguage ?? 'en',
+        payload?.templateVariables ? JSON.stringify(payload.templateVariables) : null,
+        payload?.attachmentUrl ?? null,
+        payload?.phoneNumber,
+        payload?.sentByUserId ?? null,
+      ]);
       const first = Array.isArray(queued) && queued[0] && queued[0][0];
       sendGuid = first ? first.sendGuid : null;
     } catch (err) {
@@ -1020,16 +635,13 @@ function registerIpcHandlers() {
 
     if (sendGuid) {
       try {
-        await pool.execute(
-          'call update_whatsapp_status(?, ?, ?, ?, ?);',
-          sanitizeBinds([
-            sendGuid,
-            apiResult.ok ? 'sent' : 'failed',
-            apiResult.messageId ?? null,
-            apiResult.ok ? null : (apiResult.error || 'unknown'),
-            payload?.sentByUserId ?? null,
-          ]),
-        );
+        proc('update_whatsapp_status', [
+          sendGuid,
+          apiResult.ok ? 'sent' : 'failed',
+          apiResult.messageId ?? null,
+          apiResult.ok ? null : (apiResult.error || 'unknown'),
+          payload?.sentByUserId ?? null,
+        ]);
       } catch (err) {
         logger.error('[whatsapp:send] update_whatsapp_status failed:', err);
       }
@@ -1040,75 +652,39 @@ function registerIpcHandlers() {
       : { ok: false, sendGuid, error: apiResult.error };
   });
 
-  ipcMain.handle('whatsapp:updateStatus', async (_event, payload, options) => {
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute(
-        'call update_whatsapp_status(?, ?, ?, ?, ?);',
-        sanitizeBinds([
-          payload?.sendGuid,
-          payload?.newStatus,
-          payload?.metaMessageId ?? null,
-          payload?.errorMessage ?? null,
-          payload?.actorUserId ?? null,
-        ]),
-      );
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('whatsapp:updateStatus', async (_event, payload) => proc('update_whatsapp_status', [
+    payload?.sendGuid,
+    payload?.newStatus,
+    payload?.metaMessageId ?? null,
+    payload?.errorMessage ?? null,
+    payload?.actorUserId ?? null,
+  ]));
 
-  ipcMain.handle('whatsapp:getLog', async (_event, args, options) => {
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute(
-        'call get_whatsapp_send_log(?, ?, ?, ?, ?, ?);',
-        sanitizeBinds([
-          args?.customerGuid ?? null,
-          args?.status ?? null,
-          args?.dateFrom ?? null,
-          args?.dateTo ?? null,
-          args?.pageSize ?? 20,
-          args?.page ?? 1,
-        ]),
-      );
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('whatsapp:getLog', async (_event, args) => proc('get_whatsapp_send_log', [
+    args?.customerGuid ?? null,
+    args?.status ?? null,
+    args?.dateFrom ?? null,
+    args?.dateTo ?? null,
+    args?.pageSize ?? 20,
+    args?.page ?? 1,
+  ]));
 
-  ipcMain.handle('whatsapp:getByCustomer', async (_event, customerGuid, options) => {
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute(
-        'call get_whatsapp_sends_by_customer(?);', sanitizeBinds([customerGuid]));
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('whatsapp:getByCustomer', async (_event, customerGuid) =>
+    proc('get_whatsapp_sends_by_customer', [customerGuid]));
 
-  ipcMain.handle('whatsapp:getByInvoice', async (_event, invoiceGuid, options) => {
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute(
-        'call get_whatsapp_sends_by_invoice(?);', sanitizeBinds([invoiceGuid]));
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('whatsapp:getByInvoice', async (_event, invoiceGuid) =>
+    proc('get_whatsapp_sends_by_invoice', [invoiceGuid]));
 
   // -- IBJA (rate scraper + snapshot log) ----------------------------------
-  ipcMain.handle('ibja:fetchNow', async () => {
-    return runIbjaFetchAndSave();
-  });
+  ipcMain.handle('ibja:fetchNow', async () => runIbjaFetchAndSave());
 
-  ipcMain.handle('ibja:getSnapshots', async (_event, args, options) => {
-    return runWithTimeout(async () => {
-      const [r] = await pool.execute(
-        'call get_ibja_snapshots(?, ?, ?, ?, ?);',
-        sanitizeBinds([
-          args?.status ?? null,
-          args?.dateFrom ?? null,
-          args?.dateTo ?? null,
-          args?.pageSize ?? 20,
-          args?.page ?? 1,
-        ]),
-      );
-      return r;
-    }, options?.timeoutMs);
-  });
+  ipcMain.handle('ibja:getSnapshots', async (_event, args) => proc('get_ibja_snapshots', [
+    args?.status ?? null,
+    args?.dateFrom ?? null,
+    args?.dateTo ?? null,
+    args?.pageSize ?? 20,
+    args?.page ?? 1,
+  ]));
 
   ipcMain.handle('ibja:getScheduleInfo', () => ibjaScheduleInfo());
 
@@ -1117,12 +693,14 @@ function registerIpcHandlers() {
   ipcMain.handle('store:set',    (_event, key, value) => { store.set(key, value); return true; });
   ipcMain.handle('store:delete', (_event, key)        => { store.delete(key); return true; });
 
+  // Retained for renderer bootstrap compatibility. There are no DB credentials
+  // under SQLite; this returns a harmless stub (db:initialize is a no-op).
   ipcMain.handle('store:getDefaultDbInfo', () => ({
-    DATABASE_NAME:     ENV_DB_NAME,
-    DATABASE_USERNAME: ENV_DB_USER,
-    DATABASE_PASSWORD: ENV_DB_PASSWORD,
-    DATABASE_PORT:     ENV_DB_PORT,
-    DATABASE_HOST:     ENV_DB_HOST,
+    DATABASE_NAME:     'sqlite',
+    DATABASE_USERNAME: '',
+    DATABASE_PASSWORD: '',
+    DATABASE_PORT:     0,
+    DATABASE_HOST:     'local',
     LAST_UPDATED_ON:   new Date().toUTCString(),
   }));
 
@@ -1245,7 +823,7 @@ function ibjaScheduleInfo(now = new Date()) {
 }
 
 async function runIbjaFetchAndSave() {
-  if (!pool) return { ok: false, error: 'db_not_initialised' };
+  try { sqliteDb.getDb(); } catch (_) { return { ok: false, error: 'db_not_initialised' }; }
   const now = new Date();
   const result = await getIbjaService().fetchIbjaRates(now);
 
@@ -1255,10 +833,7 @@ async function runIbjaFetchAndSave() {
 
   try {
     if (result.ok) {
-      await pool.execute(
-        'call save_ibja_snapshot(?, ?, ?, ?);',
-        sanitizeBinds([session, result.rawResponse ?? '', 'success', null]),
-      );
+      proc('save_ibja_snapshot', [session, result.rawResponse ?? '', 'success', null]);
       const purities = result.purities || {};
       const nowDate = now.toISOString().slice(0, 10);
       const ratesArray = [];
@@ -1270,25 +845,19 @@ async function runIbjaFetchAndSave() {
       }
       if (ratesArray.length) {
         try {
-          await pool.execute(
-            'call save_metal_rates(?, ?, ?, ?, ?);',
-            sanitizeBinds([nowDate, session, 'ibja', null, JSON.stringify(ratesArray)]),
-          );
+          proc('save_metal_rates', [nowDate, session, 'ibja', null, JSON.stringify(ratesArray)]);
         } catch (rateErr) {
           logger.error('[ibja] save_metal_rates failed:', rateErr);
         }
       }
       return { ok: true, session, purities };
     }
-    await pool.execute(
-      'call save_ibja_snapshot(?, ?, ?, ?);',
-      sanitizeBinds([
-        session,
-        result.rawResponse ?? '',
-        result.reason || 'network_error',
-        result.error || null,
-      ]),
-    );
+    proc('save_ibja_snapshot', [
+      session,
+      result.rawResponse ?? '',
+      result.reason || 'network_error',
+      result.error || null,
+    ]);
     return { ok: false, error: result.error || result.reason };
   } catch (err) {
     logger.error('[ibja] run failed:', err);
@@ -1297,16 +866,12 @@ async function runIbjaFetchAndSave() {
 }
 
 async function scheduleNextIbjaFire() {
-  if (!pool) {
-    logger.warn('[ibja] scheduleNextIbjaFire called with no pool; skipping.');
-    return;
-  }
   let enabled = false;
   try {
-    const [rows] = await pool.query(
-      'SELECT ibjaAutoFetchEnabled FROM shopsettings WHERE id = 1;'
-    );
-    enabled = !!(rows && rows[0] && rows[0].ibjaAutoFetchEnabled);
+    const row = sqliteDb.getDb().prepare(
+      'SELECT ibjaAutoFetchEnabled FROM shopsettings WHERE id = 1'
+    ).get();
+    enabled = !!(row && row.ibjaAutoFetchEnabled);
   } catch (err) {
     logger.warn('[ibja] read shopsettings failed:', err.message);
   }
@@ -1338,10 +903,8 @@ async function scheduleNextIbjaFire() {
 // Lifecycle
 // ---------------------------------------------------------------------------
 app.whenReady().then(() => {
-  // Phase 0: bring up the SQLite handle (create file + run migrations) so the
-  // native module, schema build, and packaging path are exercised on every
-  // launch. Wrapped so a broken binding is logged, not fatal, while mysql2
-  // still owns the live data path.
+  // Open the SQLite handle (create file + run migrations) before registering
+  // handlers so the very first IPC call has a live database.
   try {
     sqliteDb.initDatabase();
   } catch (err) {
@@ -1350,16 +913,16 @@ app.whenReady().then(() => {
 
   registerIpcHandlers();
   createWindow();
-  poolReady.then(() => {
-    scheduleNextIbjaFire().catch((err) =>
-      logger.warn('[ibja] initial schedule failed:', err.message));
-  });
+
+  // DB is ready synchronously; schedule the IBJA auto-fetch directly.
+  scheduleNextIbjaFire().catch((err) =>
+    logger.warn('[ibja] initial schedule failed:', err.message));
 });
 
-// Consolidated shutdown: closes serialport, clears IBJA timer, ends mysql2
-// pool, and prunes the Chromium HTTP disk cache. `before-quit` runs on
-// every quit path (menu-quit on macOS bypasses window-all-closed), so
-// this is the correct hook for blocking cleanup.
+// Consolidated shutdown: closes serialport, clears IBJA timer, closes the
+// SQLite handle, and prunes the Chromium HTTP disk cache. `before-quit` runs
+// on every quit path (menu-quit on macOS bypasses window-all-closed), so this
+// is the correct hook for blocking cleanup.
 let isQuitting = false;
 app.on('before-quit', async (event) => {
   if (isQuitting) return;
@@ -1375,14 +938,6 @@ app.on('before-quit', async (event) => {
   }
 
   if (ibjaTimer) { clearTimeout(ibjaTimer); ibjaTimer = null; }
-
-  try {
-    if (pool) await pool.end();
-  } catch (err) {
-    logger.warn('[shutdown] pool.end failed:', err && err.message);
-  } finally {
-    pool = null;
-  }
 
   try {
     sqliteDb.closeDatabase();
