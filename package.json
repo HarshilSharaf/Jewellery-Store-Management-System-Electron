@@ -1,6 +1,8 @@
 {
     "name": "com.jewellery.store.management.system",
     "version": "0.0.0",
+    "description": "Offline-first jewellery store management system (POS) for single-shop Indian jewellers.",
+    "author": "Harshil Sharaf",
     "main": "src-electron/main.js",
     "scripts": {
         "ng": "ng",
@@ -11,7 +13,9 @@
         "dev": "ng serve",
         "electron": "electron .",
         "electron-dev": "concurrently \"ng serve\" \"npm run electron\"",
-        "electron-build": "npm run build && set ELECTRON_IS_DEV=0 && electron ."
+        "electron-build": "npm run build && set ELECTRON_IS_DEV=0 && electron .",
+        "pack": "npm run build && electron-builder --dir",
+        "dist": "npm run build && electron-builder"
     },
     "private": true,
     "engines": {
@@ -31,6 +35,7 @@
         "animate.css": "^4.1.1",
         "base64-js": "^1.5.1",
         "bcryptjs": "^2.4.3",
+        "better-sqlite3": "^13.0.1",
         "chart.js": "^4.5.1",
         "dayjs": "^1.11.21",
         "electron-log": "^5.4.4",
@@ -58,6 +63,7 @@
         "clsx": "^2.1.1",
         "concurrently": "^8.2.2",
         "electron": "^40.4.1",
+        "electron-builder": "^25.1.8",
         "jasmine-core": "~5.6.0",
         "karma": "~6.4.4",
         "karma-chrome-launcher": "~3.2.0",
@@ -72,5 +78,44 @@
     },
     "overrides": {
         "@hono/node-server": "^2.0.5"
+    },
+    "build": {
+        "appId": "com.jewellery.store.management.system",
+        "productName": "Jewellery Store Manager",
+        "artifactName": "${productName}-${version}-${arch}.${ext}",
+        "directories": {
+            "output": "release"
+        },
+        "npmRebuild": false,
+        "buildDependenciesFromSource": false,
+        "files": [
+            "dist/**/*",
+            "src-electron/**/*",
+            "Backend/**/*",
+            "package.json"
+        ],
+        "asarUnpack": [
+            "**/node_modules/better-sqlite3/**",
+            "**/node_modules/serialport/**",
+            "**/node_modules/@serialport/**",
+            "**/*.node"
+        ],
+        "win": {
+            "signAndEditExecutable": false,
+            "target": [
+                {
+                    "target": "nsis",
+                    "arch": [
+                        "x64"
+                    ]
+                }
+            ]
+        },
+        "nsis": {
+            "oneClick": false,
+            "perMachine": false,
+            "allowToChangeInstallationDirectory": true,
+            "deleteAppDataOnUninstall": false
+        }
     }
 }

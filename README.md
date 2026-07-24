@@ -23,6 +23,23 @@ npm run electron   # terminal B: Electron shell
 
 Log in with the seeded `admin` / `admin123`.
 
+### Installing dependencies (native modules)
+
+The data layer is migrating from MySQL to embedded SQLite (`better-sqlite3`).
+`better-sqlite3` v13 ships **N-API prebuilt binaries** (one binary works for
+both Node and Electron), so no compilation is needed. However, npm will still
+try to auto-compile any package that has a `binding.gyp`, which requires
+Python + VS Build Tools. To use the bundled prebuild instead, install with
+scripts skipped:
+
+```bash
+npm ci --ignore-scripts
+```
+
+Use this for local installs and in CI. Only install a full native toolchain
+(Python 3 + Visual Studio Build Tools) if you specifically need to compile
+native modules from source.
+
 ## Documentation
 
 Full docs live under [`docs/`](./docs). Highlights:

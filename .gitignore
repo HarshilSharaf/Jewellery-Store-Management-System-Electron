@@ -6,6 +6,15 @@
 /out-tsc
 /bazel-out
 
+# Electron packaging output
+/release
+/release_test
+
+# Local SQLite scratch DBs
+*.db
+*.db-wal
+*.db-shm
+
 # Node
 /node_modules
 npm-debug.log

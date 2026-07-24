@@ -22,6 +22,10 @@ const mysql = require('mysql2/promise');
 const ElectronStore = require('electron-store');
 const logger = require('electron-log');
 
+// SQLite data layer (Phase 0: initialised alongside the mysql2 pool, not yet
+// wired to the IPC data handlers). See src-electron/db/index.js.
+const sqliteDb = require('./db');
+
 // ---------------------------------------------------------------------------
 // Chromium / V8 command-line switches. Must be appended BEFORE app.whenReady()
 // resolves; Chromium locks these once the browser process finishes bootstrap.
@@ -1312,6 +1316,16 @@ async function scheduleNextIbjaFire() {
 // Lifecycle
 // ---------------------------------------------------------------------------
 app.whenReady().then(() => {
+  // Phase 0: bring up the SQLite handle (create file + run migrations) so the
+  // native module, schema build, and packaging path are exercised on every
+  // launch. Wrapped so a broken binding is logged, not fatal, while mysql2
+  // still owns the live data path.
+  try {
+    sqliteDb.initDatabase();
+  } catch (err) {
+    logger.error('[db] SQLite initialisation failed:', err);
+  }
+
   registerIpcHandlers();
   createWindow();
   poolReady.then(() => {
@@ -1346,6 +1360,12 @@ app.on('before-quit', async (event) => {
     logger.warn('[shutdown] pool.end failed:', err && err.message);
   } finally {
     pool = null;
+  }
+
+  try {
+    sqliteDb.closeDatabase();
+  } catch (err) {
+    logger.warn('[shutdown] sqlite close failed:', err && err.message);
   }
 
   try {
