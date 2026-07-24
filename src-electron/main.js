@@ -22,9 +22,10 @@ const mysql = require('mysql2/promise');
 const ElectronStore = require('electron-store');
 const logger = require('electron-log');
 
-// SQLite data layer (Phase 0: initialised alongside the mysql2 pool, not yet
-// wired to the IPC data handlers). See src-electron/db/index.js.
+// SQLite data layer. Phase 1: ported stored procedures are routed to SQLite
+// via db/router.js; unported procs and raw SQL still hit the mysql2 pool.
 const sqliteDb = require('./db');
+const sqliteRouter = require('./db/router');
 
 // ---------------------------------------------------------------------------
 // Chromium / V8 command-line switches. Must be appended BEFORE app.whenReady()
@@ -305,6 +306,16 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('db:execute', async (_event, sql, values, options) => {
+    // Phase 1: route ported stored procedures to SQLite. Unported procs and
+    // raw SQL fall through to the legacy mysql2 pool below.
+    if (sqliteRouter.isHandled(sql)) {
+      try {
+        return sqliteRouter.tryExecute(sql, values, () => sqliteDb.getDb());
+      } catch (err) {
+        logger.error(`[db:execute] sqlite proc failed (${sqliteRouter.procName(sql)}):`, err);
+        throw err;
+      }
+    }
     return runWithTimeout(async () => {
       const [results] = await pool.execute(sql, sanitizeBinds(values));
       return results;

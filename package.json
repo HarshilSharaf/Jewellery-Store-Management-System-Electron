@@ -10,6 +10,7 @@
         "build": "ng build --base-href ./ --configuration=production",
         "watch": "ng build --watch --configuration development",
         "test": "ng test",
+        "test:db": "node --test \"src-electron/db/*.test.js\"",
         "dev": "ng serve",
         "electron": "electron .",
         "electron-dev": "concurrently \"ng serve\" \"npm run electron\"",
