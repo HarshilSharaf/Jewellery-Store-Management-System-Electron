@@ -33,7 +33,9 @@ const N = SIZE === 'large'
   ? { customers: 100, products: 300, orders: 250, karigars: 12, jobs: 20, schemes: 15, repairs: 30 }
   : { customers: 15, products: 40, orders: 30, karigars: 3, jobs: 3, schemes: 3, repairs: 4 };
 
-const DB_PATH = process.env.ZEUS_DB_PATH || path.resolve(process.cwd(), 'demo.db');
+// Anchored to this file (not cwd) so it matches the app's dev default
+// (db/index.js DEV_DB_PATH) regardless of where the script is launched from.
+const DB_PATH = process.env.ZEUS_DB_PATH || path.join(__dirname, '..', '..', 'demo.db');
 const SCHEMA_DIR = path.join(__dirname, 'schema');
 
 // Metal rates (rupees per gram) used both for the metalrates table and to
@@ -278,8 +280,13 @@ function seed() {
   log(`  orders:    ${orderOk} ok, ${orderErr} failed  (+${paymentsAdded} balance payments)`);
   log(`  karigars:  ${karigars.length}, jobs: ${jobsDone}`);
   log(`  schemes:   ${schemesDone}, repairs: ${repairsDone}`);
-  log('\nLaunch the app against this DB:');
-  log(`  ZEUS_DB_PATH="${DB_PATH}" npm run electron`);
+  if (process.env.ZEUS_DB_PATH) {
+    log('\nLaunch the app with ZEUS_DB_PATH set to this file in the launching shell:');
+    log(`  (PowerShell)  $env:ZEUS_DB_PATH = "${DB_PATH}"; npm run electron`);
+  } else {
+    log('\nLaunch the dev app (it uses this demo.db automatically):');
+    log('  npm run electron');
+  }
   log('Login: admin / admin');
 }
 

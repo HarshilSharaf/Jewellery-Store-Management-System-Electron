@@ -45,12 +45,22 @@ const MIGRATIONS = [
   },
 ];
 
+/** Repo-local dev database, anchored to this file (not cwd) so the app and the
+ *  seeder always resolve to the same absolute path. Kept in one place. */
+const DEV_DB_PATH = path.join(__dirname, '..', '..', 'demo.db');
+
 function resolveDbPath() {
   if (process.env.ZEUS_DB_PATH && process.env.ZEUS_DB_PATH.length) {
     return process.env.ZEUS_DB_PATH;
   }
   // Required at call time (not module load) so tests can run without Electron.
   const { app } = require('electron');
+  // Dev (unpackaged): use the repo's demo.db so `npm run seed:demo` +
+  // `npm run electron` share one file with no ZEUS_DB_PATH juggling.
+  // Packaged/production: the per-user data directory.
+  if (!app.isPackaged) {
+    return DEV_DB_PATH;
+  }
   return path.join(app.getPath('userData'), 'jewellery.db');
 }
 

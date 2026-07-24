@@ -54,9 +54,11 @@ npm run seed:demo:large      # busy set for reports/dashboards
 standalone `--`; `npm run seed:demo --large` is misread by npm as a config
 flag and silently runs the small set.)
 
-It writes to `./demo.db` (or `$ZEUS_DB_PATH`). Launch the app against it with
-`ZEUS_DB_PATH="<abs>/demo.db" npm run electron`. Never ship demo data in an
-installer.
+It writes to the repo's `demo.db` (or `$ZEUS_DB_PATH`). In dev the unpackaged
+app **uses that same `demo.db` automatically**, so after seeding just run
+`npm run electron` — no env var needed. (Packaged builds use the per-user data
+directory; set `ZEUS_DB_PATH` to target a specific file.) Never ship demo data
+in an installer.
 
 ## Documentation
 
