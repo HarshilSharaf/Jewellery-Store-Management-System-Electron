@@ -334,6 +334,8 @@ function registerIpcHandlers() {
   // renderer never has to embed the SP name in a raw SQL string. Falls
   // through to the same pool as db:execute.
   ipcMain.handle('metalRates:getCurrent', async (_event, options) => {
+    const routed = sqliteRouter.runProc('get_current_metal_rates', [], () => sqliteDb.getDb());
+    if (routed !== undefined) { return routed; }
     return runWithTimeout(async () => {
       const [results] = await pool.query('call get_current_metal_rates();');
       return results;
@@ -341,16 +343,18 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('metalRates:save', async (_event, payload, options) => {
+    const params = [
+      payload?.effectiveDate,
+      payload?.session,
+      payload?.source ?? 'manual',
+      payload?.setByUserId ?? null,
+      JSON.stringify(payload?.rates ?? []),
+    ];
+    const routed = sqliteRouter.runProc('save_metal_rates', params, () => sqliteDb.getDb());
+    if (routed !== undefined) { return routed; }
     return runWithTimeout(async () => {
       const [results] = await pool.execute(
-        'call save_metal_rates(?, ?, ?, ?, ?);',
-        sanitizeBinds([
-          payload?.effectiveDate,
-          payload?.session,
-          payload?.source ?? 'manual',
-          payload?.setByUserId ?? null,
-          JSON.stringify(payload?.rates ?? []),
-        ]),
+        'call save_metal_rates(?, ?, ?, ?, ?);', sanitizeBinds(params),
       );
       return results;
     }, options?.timeoutMs);
@@ -358,6 +362,8 @@ function registerIpcHandlers() {
 
   // -- Shop settings -------------------------------------------------------
   ipcMain.handle('shopSettings:get', async (_event, options) => {
+    const routed = sqliteRouter.runProc('get_shop_settings', [], () => sqliteDb.getDb());
+    if (routed !== undefined) { return routed; }
     return runWithTimeout(async () => {
       const [results] = await pool.query('call get_shop_settings();');
       return results;
@@ -365,33 +371,36 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('shopSettings:save', async (_event, payload, options) => {
+    const params = [
+      payload?.shopName,
+      payload?.gstin,
+      payload?.pan ?? null,
+      payload?.addressLine1,
+      payload?.addressLine2 ?? null,
+      payload?.city,
+      payload?.state,
+      payload?.stateCode,
+      payload?.pincode,
+      payload?.phone,
+      payload?.email ?? null,
+      payload?.logoPath ?? null,
+      payload?.invoicePrefix,
+      payload?.invoiceStartFrom,
+      payload?.currentInvoiceCounter,
+      payload?.defaultCurrency,
+      payload?.timezone,
+      payload?.roundOffEnabled ? 1 : 0,
+      payload?.backupDir ?? null,
+      payload?.defaultPrintVariant ?? 'a4',
+      payload?.typographyPreset ?? 'editorial',
+      payload?.actorUserId ?? null,
+    ];
+    const routed = sqliteRouter.runProc('save_shop_settings', params, () => sqliteDb.getDb());
+    if (routed !== undefined) { return routed; }
     return runWithTimeout(async () => {
       const [results] = await pool.execute(
         'call save_shop_settings(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);',
-        sanitizeBinds([
-          payload?.shopName,
-          payload?.gstin,
-          payload?.pan ?? null,
-          payload?.addressLine1,
-          payload?.addressLine2 ?? null,
-          payload?.city,
-          payload?.state,
-          payload?.stateCode,
-          payload?.pincode,
-          payload?.phone,
-          payload?.email ?? null,
-          payload?.logoPath ?? null,
-          payload?.invoicePrefix,
-          payload?.invoiceStartFrom,
-          payload?.currentInvoiceCounter,
-          payload?.defaultCurrency,
-          payload?.timezone,
-          payload?.roundOffEnabled ? 1 : 0,
-          payload?.backupDir ?? null,
-          payload?.defaultPrintVariant ?? 'a4',
-          payload?.typographyPreset ?? 'editorial',
-          payload?.actorUserId ?? null,
-        ]),
+        sanitizeBinds(params),
       );
       return results;
     }, options?.timeoutMs);
@@ -707,6 +716,8 @@ function registerIpcHandlers() {
 
   // -- Auth: user permissions ---------------------------------------------
   ipcMain.handle('auth:getUserPermissions', async (_event, userId, options) => {
+    const routed = sqliteRouter.runProc('get_user_permissions', [userId], () => sqliteDb.getDb());
+    if (routed !== undefined) { return routed; }
     return runWithTimeout(async () => {
       const [r] = await pool.execute('call get_user_permissions(?);', sanitizeBinds([userId]));
       return r;

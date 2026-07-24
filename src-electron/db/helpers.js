@@ -63,6 +63,26 @@ function resolveId(db, table, guidColumn, guidValue) {
   return row ? row.id : null;
 }
 
+/** Reads a user's role for the RBAC guards embedded in mutating procs. */
+function getUserType(db, uid) {
+  if (uid == null) { return null; }
+  const row = db.prepare('SELECT type FROM users WHERE uid = ?').get(uid);
+  return row ? row.type : null;
+}
+
+/**
+ * Percentage-growth idiom shared by the dashboard count procs
+ * (get_revenue_of_six_months, get_total_stock, get_total_customers, ...).
+ * Guards div-by-zero the way the SPs do: no prior value -> 100% if there's
+ * a current value, else 0. Returns a Number rounded to 2 decimals.
+ */
+function computeGrowth(current, previous) {
+  const cur = Number(current) || 0;
+  const prev = Number(previous) || 0;
+  if (prev > 0) { return Math.round(((cur - prev) / prev) * 10000) / 100; }
+  return cur > 0 ? 100 : 0;
+}
+
 module.exports = {
   newGuid,
   buildImageName,
@@ -71,4 +91,6 @@ module.exports = {
   truthy,
   writeAudit,
   resolveId,
+  getUserType,
+  computeGrowth,
 };

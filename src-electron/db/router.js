@@ -33,6 +33,26 @@ function isHandled(sql) {
   return !!(name && registry[name]);
 }
 
+/** True if a proc of this exact name has a SQLite implementation. */
+function hasProc(name) {
+  return !!registry[name];
+}
+
+/**
+ * Runs a registered proc by NAME (used by the named IPC channels, which know
+ * the proc up front and don't send a `call ...` string). Returns the
+ * mysql2-shaped envelope, or `undefined` if the proc is not registered.
+ *
+ * @param {Function} getDb - lazy accessor; only invoked for handled procs.
+ */
+function runProc(name, params, getDb) {
+  const fn = registry[name];
+  if (!fn) { return undefined; }
+  const db = getDb();
+  const sets = fn(db, Array.isArray(params) ? params : []);
+  return [...sets, SENTINEL];
+}
+
 /**
  * Executes a `call proc(...)` against SQLite if the proc is registered.
  * Returns the mysql2-shaped envelope, or `undefined` if the statement is not
@@ -43,12 +63,7 @@ function isHandled(sql) {
 function tryExecute(sql, params, getDb) {
   if (!isProcCall(sql)) { return undefined; }
   const name = procName(sql);
-  const fn = registry[name];
-  if (!fn) { return undefined; }
-
-  const db = getDb();
-  const sets = fn(db, Array.isArray(params) ? params : []);
-  return [...sets, SENTINEL];
+  return runProc(name, params, getDb);
 }
 
-module.exports = { tryExecute, isProcCall, isHandled, procName, SENTINEL };
+module.exports = { tryExecute, runProc, isProcCall, isHandled, hasProc, procName, SENTINEL };
