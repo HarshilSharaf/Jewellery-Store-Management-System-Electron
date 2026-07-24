@@ -30,8 +30,8 @@ const procs = require('./procedures');
 const SIZE = /large/i.test(process.argv.slice(2).join(' ')) || /large/i.test(process.env.SEED_SIZE || '')
   ? 'large' : 'small';
 const N = SIZE === 'large'
-  ? { customers: 100, products: 300, orders: 250, karigars: 12, jobs: 20, schemes: 15, repairs: 30 }
-  : { customers: 15, products: 40, orders: 30, karigars: 3, jobs: 3, schemes: 3, repairs: 4 };
+  ? { customers: 100, products: 800, orders: 250, karigars: 12, jobs: 20, schemes: 15, repairs: 30 }
+  : { customers: 15, products: 60, orders: 25, karigars: 3, jobs: 3, schemes: 3, repairs: 4 };
 
 // Anchored to this file (not cwd) so it matches the app's dev default
 // (db/index.js DEV_DB_PATH) regardless of where the script is launched from.
@@ -172,10 +172,13 @@ function seed() {
   for (let i = products.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [products[i], products[j]] = [products[j], products[i]]; }
 
   // -- orders ---------------------------------------------------------------
+  // Only sell into ~60% of the catalogue so plenty of stock stays unsold for
+  // the inventory screen and for creating fresh orders in the demo.
+  const maxConsume = Math.floor(products.length * 0.6);
   let orderOk = 0; let orderErr = 0; let paymentsAdded = 0; let cursor = 0;
-  for (let i = 0; i < N.orders && cursor < products.length; i++) {
+  for (let i = 0; i < N.orders && cursor < maxConsume; i++) {
     const cust = pick(customers);
-    const nLines = Math.min(ri(1, 3), products.length - cursor);
+    const nLines = Math.min(ri(1, 3), maxConsume - cursor);
     const lineItems = [];
     let subTotal = 0; let cgst = 0; let sgst = 0; let making = 0; let stone = 0; let grand = 0;
     for (let k = 0; k < nLines; k++) {

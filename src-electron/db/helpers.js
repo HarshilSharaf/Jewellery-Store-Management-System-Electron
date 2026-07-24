@@ -44,11 +44,19 @@ function truthy(v) {
  * procs. `before`/`after` are JS objects (stored as JSON text).
  */
 function writeAudit(db, { actorUserId = null, action, entity, entityId = null, before = null, after = null }) {
+  // An audit row must never block the business transaction it records. If the
+  // actor no longer exists (e.g. a stale authData.uid persisted across a DB
+  // switch, or a deleted user), null the FK rather than tripping
+  // auditlog.actorUserId -> users.uid and failing the whole write.
+  let actor = actorUserId;
+  if (actor != null && !db.prepare('SELECT 1 FROM users WHERE uid = ?').get(actor)) {
+    actor = null;
+  }
   db.prepare(
     `INSERT INTO auditlog (actorUserId, action, entity, entityId, "before", "after")
      VALUES (?, ?, ?, ?, ?, ?)`
   ).run(
-    actorUserId,
+    actor,
     action,
     entity,
     entityId == null ? null : String(entityId),
