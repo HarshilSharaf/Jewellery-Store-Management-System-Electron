@@ -18,6 +18,14 @@ const taxslabs = require('./taxslabs');
 const metalRates = require('./metalRates');
 const shopSettings = require('./shopSettings');
 const orders = require('./orders');
+// P2 domains
+const oldGold = require('./oldGold');
+const whatsapp = require('./whatsapp');
+const ibja = require('./ibja');
+const repair = require('./repair');
+const reports = require('./reports');
+const savingSchemes = require('./savingSchemes');
+const karigar = require('./karigar');
 
 module.exports = {
   ...purities,
@@ -30,4 +38,11 @@ module.exports = {
   ...metalRates,
   ...shopSettings,
   ...orders,
+  ...oldGold,
+  ...whatsapp,
+  ...ibja,
+  ...repair,
+  ...reports,
+  ...savingSchemes,
+  ...karigar,
 };

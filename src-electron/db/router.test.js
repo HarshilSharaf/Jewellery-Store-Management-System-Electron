@@ -44,10 +44,10 @@ function cleanup(db) {
 }
 
 test('unregistered procs and raw SQL fall through to legacy', () => {
-  // get_karigar_ledger is a P2 proc, deliberately not yet ported -> undefined.
-  assert.equal(router.tryExecute('call get_karigar_ledger(?)', ['x'], () => { throw new Error('should not open db'); }), undefined);
+  // A proc with no registered implementation -> undefined (legacy fallback).
+  assert.equal(router.tryExecute('call not_a_real_proc(?)', ['x'], () => { throw new Error('should not open db'); }), undefined);
   assert.equal(router.isHandled('SELECT 1'), false);
-  assert.equal(router.isHandled('call get_karigar_ledger(?)'), false);
+  assert.equal(router.isHandled('call not_a_real_proc(?)'), false);
   assert.equal(router.isHandled('call get_purities()'), true);
 });
 

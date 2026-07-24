@@ -38,6 +38,11 @@ const MIGRATIONS = [
     sqlFile: '001_baseline.sql',
     seed: seedBaseline,
   },
+  {
+    version: 2,
+    name: 'p2_tables',
+    sqlFile: '002_p2_tables.sql',
+  },
 ];
 
 function resolveDbPath() {
