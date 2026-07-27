@@ -19,6 +19,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     initialize: (config) => ipcRenderer.invoke('db:initialize', config),
     execute:    (sql, values, options) => ipcRenderer.invoke('db:execute', sql, values, options),
     query:      (sql, options) => ipcRenderer.invoke('db:query', sql, options),
+    seedSampleData:  (payload) => ipcRenderer.invoke('db:seedSampleData', payload),
+    clearSampleData: ()        => ipcRenderer.invoke('db:clearSampleData'),
   },
 
   metalRates: {

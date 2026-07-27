@@ -43,6 +43,7 @@
         "better-sqlite3": "^13.0.1",
         "chart.js": "^4.5.1",
         "dayjs": "^1.11.21",
+        "driver.js": "^1.8.0",
         "electron-log": "^5.4.4",
         "electron-store": "^8.2.0",
         "ngx-image-compress": "^18.1.7",

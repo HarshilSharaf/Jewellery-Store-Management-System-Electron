@@ -44,7 +44,8 @@
               {"glob": "splashscreen.js", "input": "Backend/Shared/", "output": "/assets/splashscreens/"}
             ],
             "styles": [
-              "client/styles.scss"
+              "client/styles.scss",
+              "node_modules/driver.js/dist/driver.css"
             ],
             "scripts": [
               "client/assets/bootstrap-compat.js"

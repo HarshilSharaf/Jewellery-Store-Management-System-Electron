@@ -19,6 +19,8 @@ const MIGRATIONS = [
   { version: 2, name: 'p2_tables',          sqlFile: '002_p2_tables.sql' },
   { version: 3, name: 'perf_indexes',       sqlFile: '003_perf_indexes.sql' },
   { version: 4, name: 'query_opt_indexes',  sqlFile: '004_query_opt_indexes.sql' },
+  { version: 5, name: 'onboarding_state',   sqlFile: '005_onboarding_state.sql' },
+  { version: 6, name: 'onboarding_sample',  sqlFile: '006_onboarding_sample_flag.sql' },
 ];
 
 function readSchema(sqlFile) {

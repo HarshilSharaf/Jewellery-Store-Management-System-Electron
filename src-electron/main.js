@@ -58,6 +58,8 @@ let scaleService = null;
 let whatsappService = null;
 let ibjaService = null;
 let bcrypt = null;
+let sampleDataModule = null;
+function getSampleData()      { if (!sampleDataModule) sampleDataModule = require('./db/sample-data'); return sampleDataModule; }
 function getBackupService()   { if (!backupService)   backupService   = require('./backup');   return backupService; }
 function getScaleService()    { if (!scaleService)    scaleService    = require('./scale');    return scaleService; }
 function getWhatsappService() { if (!whatsappService) whatsappService = require('./whatsapp'); return whatsappService; }
@@ -233,6 +235,33 @@ function registerIpcHandlers() {
   ipcMain.handle('db:execute', async (_event, sql, values) => routeSql(sql, values));
 
   ipcMain.handle('db:query', async (_event, sql) => routeSql(sql, []));
+
+  // Runtime sample-data load/clear (onboarding "explore with sample data" +
+  // Settings "remove sample data"). Load is guarded to empty shops; clear is a
+  // guarded wipe of business tables. Both return { ok, ... } rather than
+  // throwing across the IPC boundary.
+  ipcMain.handle('db:seedSampleData', async (_event, payload) => {
+    try {
+      const summary = getSampleData().loadSampleData(sqliteDb.getDb(), {
+        size: payload?.size === 'large' ? 'large' : 'small',
+        log: (m) => logger.info(`[sample-data] ${m}`),
+      });
+      return { ok: true, summary };
+    } catch (err) {
+      logger.error('[db] seedSampleData failed:', err);
+      return { ok: false, error: err && err.message ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle('db:clearSampleData', async () => {
+    try {
+      getSampleData().clearSampleData(sqliteDb.getDb());
+      return { ok: true };
+    } catch (err) {
+      logger.error('[db] clearSampleData failed:', err);
+      return { ok: false, error: err && err.message ? err.message : String(err) };
+    }
+  });
 
   // -- Metal rates ---------------------------------------------------------
   ipcMain.handle('metalRates:getCurrent', async () => proc('get_current_metal_rates', []));
