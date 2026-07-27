@@ -1,17 +1,19 @@
 /**
- * mysqldump-based backup + restore. Runs in the Electron main process.
- * The renderer never imports this file directly — it goes through
- * the `backup:*` IPC channels registered in main.js.
+ * SQLite backup + restore. Runs in the Electron main process; the renderer
+ * goes through the `backup:*` IPC channels in main.js.
  *
- * `mysqldump` and `mysql` client binaries must be on PATH.
+ * The "dump" is now the SQLite database file itself: we take a consistent,
+ * WAL-safe snapshot via better-sqlite3's online backup API, then encrypt it
+ * with the SAME AES-256-GCM + scrypt scheme used by the old mysqldump flow
+ * (archive format unchanged below the extension). No external binaries.
  */
 
-const { spawn } = require('child_process');
+const Database = require('better-sqlite3');
 const {
   createCipheriv, createDecipheriv, randomBytes, scryptSync,
 } = require('crypto');
 const {
-  createReadStream, createWriteStream, existsSync, promises: fsp, statSync,
+  existsSync, promises: fsp, statSync,
 } = require('fs');
 const { basename, join } = require('path');
 
@@ -35,6 +37,8 @@ function deriveKey(passphrase, salt) {
 async function ensureDir(dir) {
   await fsp.mkdir(dir, { recursive: true });
 }
+
+// -- AES-256-GCM archive (unchanged from the mysqldump-era format) ----------
 
 async function encryptFile(srcPath, destPath, passphrase) {
   const salt = randomBytes(SCRYPT_SALT_LEN);
@@ -73,51 +77,38 @@ async function decryptFile(srcPath, destPath, passphrase) {
   await fsp.writeFile(destPath, out);
 }
 
-async function createBackup(config, passphrase, targetDir) {
+// -- Backup / restore -------------------------------------------------------
+
+/**
+ * Snapshots `dbPath` to a temp file (WAL-safe), encrypts it to `<base>.db.enc`,
+ * and removes the temp. Returns metadata about the archive.
+ */
+async function createBackup(dbPath, passphrase, targetDir) {
   if (!passphrase || passphrase.length < 4) {
     throw new Error('createBackup: passphrase must be at least 4 characters');
   }
+  if (!existsSync(dbPath)) {
+    throw new Error(`createBackup: database not found: ${dbPath}`);
+  }
   await ensureDir(targetDir);
-  const filenameBase = `backup-${config.database}-${stamp()}`;
-  const rawPath = join(targetDir, `${filenameBase}.sql`);
-  const encPath = join(targetDir, `${filenameBase}.sql.enc`);
 
-  const env = { ...process.env, MYSQL_PWD: config.password };
-  const args = [
-    `--host=${config.host}`,
-    `--port=${config.port}`,
-    `--user=${config.user}`,
-    '--single-transaction',
-    '--routines',
-    '--triggers',
-    '--events',
-    '--set-gtid-purged=OFF',
-    '--column-statistics=0',
-    config.database,
-  ];
+  const filenameBase = `backup-${stamp()}`;
+  const tmpPath = join(targetDir, `${filenameBase}.db`);
+  const encPath = join(targetDir, `${filenameBase}.db.enc`);
 
-  await new Promise((resolve, reject) => {
-    const out = createWriteStream(rawPath);
-    const child = spawn('mysqldump', args, { env });
-    let stderr = '';
-    child.stdout.pipe(out);
-    child.stderr.on('data', (c) => { stderr += c.toString(); });
-    child.on('error', (err) => {
-      if (err.code === 'ENOENT') {
-        reject(new Error('mysqldump not found on PATH. Install MySQL client tools.'));
-      } else { reject(err); }
-    });
-    child.on('close', (code) => {
-      out.end();
-      out.once('close', () => {
-        if (code === 0) { resolve(); }
-        else { reject(new Error(`mysqldump exited with code ${code}: ${stderr.trim()}`)); }
-      });
-    });
-  });
+  // Online backup: consistent snapshot even while the app holds the DB open.
+  const src = new Database(dbPath, { readonly: true });
+  try {
+    await src.backup(tmpPath);
+  } finally {
+    src.close();
+  }
 
-  await encryptFile(rawPath, encPath, passphrase);
-  await fsp.unlink(rawPath).catch(() => {});
+  try {
+    await encryptFile(tmpPath, encPath, passphrase);
+  } finally {
+    await fsp.unlink(tmpPath).catch(() => {});
+  }
 
   const stats = statSync(encPath);
   return {
@@ -128,41 +119,41 @@ async function createBackup(config, passphrase, targetDir) {
   };
 }
 
-async function restoreBackup(config, archivePath, passphrase) {
+/**
+ * Decrypts `archivePath`, validates it is a healthy SQLite database, then
+ * atomically replaces `dbPath` (and clears stale -wal/-shm sidecars). The
+ * caller MUST close its live handle before invoking this and reopen (or
+ * relaunch) afterwards.
+ */
+async function restoreBackup(dbPath, archivePath, passphrase) {
   if (!existsSync(archivePath)) {
     throw new Error(`restoreBackup: archive not found: ${archivePath}`);
   }
-  const tmpSql = archivePath.replace(/\.enc$/, '.decoded.sql');
-  await decryptFile(archivePath, tmpSql, passphrase);
+  const tmpPath = `${dbPath}.restore-${stamp()}.tmp`;
+  await decryptFile(archivePath, tmpPath, passphrase);
 
-  const env = { ...process.env, MYSQL_PWD: config.password };
-  const args = [
-    `--host=${config.host}`,
-    `--port=${config.port}`,
-    `--user=${config.user}`,
-    config.database,
-  ];
-
+  // Validate before we clobber the live DB.
   try {
-    await new Promise((resolve, reject) => {
-      const child = spawn('mysql', args, { env });
-      const input = createReadStream(tmpSql);
-      let stderr = '';
-      input.pipe(child.stdin);
-      child.stderr.on('data', (c) => { stderr += c.toString(); });
-      child.on('error', (err) => {
-        if (err.code === 'ENOENT') {
-          reject(new Error('mysql client not found on PATH.'));
-        } else { reject(err); }
-      });
-      child.on('close', (code) => {
-        if (code === 0) { resolve(); }
-        else { reject(new Error(`mysql exited with code ${code}: ${stderr.trim()}`)); }
-      });
-    });
-  } finally {
-    await fsp.unlink(tmpSql).catch(() => {});
+    const check = new Database(tmpPath, { readonly: true });
+    try {
+      const result = check.pragma('integrity_check', { simple: true });
+      if (result !== 'ok') {
+        throw new Error(`restoreBackup: integrity_check failed: ${result}`);
+      }
+    } finally {
+      check.close();
+    }
+  } catch (err) {
+    await fsp.unlink(tmpPath).catch(() => {});
+    throw err;
   }
+
+  // Swap files. Remove WAL/SHM sidecars so the new DB isn't reconciled against
+  // the old journal.
+  await fsp.rm(dbPath, { force: true }).catch(() => {});
+  await fsp.rm(`${dbPath}-wal`, { force: true }).catch(() => {});
+  await fsp.rm(`${dbPath}-shm`, { force: true }).catch(() => {});
+  await fsp.rename(tmpPath, dbPath);
 }
 
 async function listBackups(backupDir) {
@@ -195,4 +186,6 @@ module.exports = {
   restoreBackup,
   listBackups,
   deleteBackup,
+  // Exposed for the decrypt-backup CLI (inspect an archive without restoring).
+  decryptFile,
 };

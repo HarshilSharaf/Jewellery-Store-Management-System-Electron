@@ -1,5 +1,3 @@
-import { SettingsModel } from 'client/app/modules/settings/models/settings-model';
-
 import { Injectable, signal } from '@angular/core';
 import { StoreServiceInterface } from 'client/app/interfaces/Shared/store-service-interface';
 import { LoggerService } from './logger.service';
@@ -17,38 +15,15 @@ export class StoreService implements StoreServiceInterface {
   async initializeStore(): Promise<void> {
     // The concrete electron-store instance lives in the main process now.
     // The renderer only sees get/set/delete via IPC (see src-electron/main.js).
+    // The data layer is embedded SQLite — there is no DB connection info to
+    // seed; this only prunes an expired auth session.
     const authData = await this.get('authData');
-    const currentDate = new Date().getTime();
-    const expirationDate = new Date(authData?.expiration).getTime();
-    const dbInfo = await this.get('defaultDbInfo');
-
-    if (!dbInfo) {
-      // Ask the main process for the current default DB connection info,
-      // which it derives from environment variables at launch time (falling
-      // back to .env.example values with a log warning if unset).
-      const defaultsFromMain = await this.electronAPI?.store?.getDefaultDbInfo?.();
-      const defaultDbInfo: SettingsModel = defaultsFromMain ?? {
-        DATABASE_NAME: 'jewellery',
-        DATABASE_USERNAME: 'zeus_user',
-        DATABASE_PASSWORD: 'zeus@123',
-        DATABASE_PORT: 3306,
-        DATABASE_HOST: 'localhost',
-        LAST_UPDATED_ON: new Date().toUTCString(),
-      };
-      if (!defaultsFromMain) {
-        this.loggerService.LogError(
-          'StoreService.initializeStore(): main-process defaultDbInfo unavailable; using hard-coded fallback',
-          'StoreService.initializeStore()'
-        );
+    if (authData?.expiration) {
+      const currentDate = new Date().getTime();
+      const expirationDate = new Date(authData.expiration).getTime();
+      if (currentDate > expirationDate) {
+        await this.delete('authData');
       }
-      // Ensure LAST_UPDATED_ON is present even when supplied by main.
-      defaultDbInfo.LAST_UPDATED_ON = defaultDbInfo.LAST_UPDATED_ON || new Date().toUTCString();
-      await this.set('defaultDbInfo', defaultDbInfo);
-    }
-
-    // Delete authData from store if it is expired
-    if (authData && (currentDate > expirationDate)) {
-      await this.delete('authData');
     }
 
     this.isStoreInitialized.set(true);
