@@ -1,4 +1,3 @@
-import { SettingsModel } from 'client/app/modules/settings/models/settings-model';
 import { StoreService } from './store.service';
 import { Injectable, inject } from '@angular/core';
 import { Router } from '@angular/router';
@@ -35,7 +34,6 @@ export class DatabaseService implements DatabaseServiceInterface {
    * for interface compatibility with existing callers.
    */
   public dbConnection: any;
-  private dbConnectionInfo!: SettingsModel;
   private electronAPI: any = (window as any).electronAPI;
   private dialog = inject(AppDialogService);
 
@@ -46,29 +44,18 @@ export class DatabaseService implements DatabaseServiceInterface {
   ) {}
 
   async initializeDbConnection(): Promise<void> {
-    this.dbConnectionInfo = await this.storeService.get('currentDbInfo');
-    if (this.dbConnectionInfo == null) {
-      this.dbConnectionInfo = await this.storeService.get('defaultDbInfo');
-    }
-
     try {
-      // The main process owns the pool. We only pass credentials over IPC once
-      // per app launch. Pool config (connectionLimit, keepAlive, etc.) lives
-      // in main.js so it is a single source of truth for the connection.
-      const result = await this.electronAPI.db.initialize({
-        host: this.dbConnectionInfo.DATABASE_HOST,
-        user: this.dbConnectionInfo.DATABASE_USERNAME,
-        database: this.dbConnectionInfo.DATABASE_NAME,
-        password: this.dbConnectionInfo.DATABASE_PASSWORD,
-        port: this.dbConnectionInfo.DATABASE_PORT ?? 3306
-      });
+      // Embedded SQLite: the main process opens the database file at startup;
+      // there are no credentials to pass. db:initialize is a no-op that just
+      // reports readiness (kept so this bootstrap path stays unchanged).
+      const result = await this.electronAPI.db.initialize();
 
       if (result && result.ok === false) {
         throw new Error(result.error || 'Unknown DB initialization error');
       }
 
-      // Sentinel to preserve the pre-IPC public shape (`dbConnection` was
-      // truthy when the connection was up; callers may still check it).
+      // Sentinel preserves the pre-IPC public shape (`dbConnection` was truthy
+      // when the connection was up; callers may still check it).
       this.dbConnection = { ready: true };
     } catch (error) {
       this.loggerService.LogError(error, 'DatabaseService.initializeDbConnection()');

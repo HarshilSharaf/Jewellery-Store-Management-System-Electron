@@ -6,6 +6,15 @@ contribution workflow. Content here describes the intended post-modernization st
 the codebase; drift from the running app should be treated as a bug in either the code
 or these docs.
 
+> **⚠️ Data layer changed: MySQL → embedded SQLite.** The app now uses
+> [`better-sqlite3`](https://github.com/WiseLibs/better-sqlite3); mysql2 is fully
+> removed. See [`database/sqlite-migration.md`](./database/sqlite-migration.md) for
+> the canonical summary. Pages below that still describe MySQL, `docker compose`,
+> stored procedures, or the DB connection settings page are **superseded** by that
+> document and are pending rewrite (Docker/manual quick-starts, `docker-mysql` and
+> `change-db-connection` runbooks, and the `stored-procedures`/`schema`/`seed-data`
+> database pages).
+
 ## Contents
 
 - [`overview.md`](./overview.md) - What the app does, who it's for, and the high-level
@@ -38,6 +47,9 @@ or these docs.
 
 ### Database
 
+- [`database/sqlite-migration.md`](./database/sqlite-migration.md) - **Current.**
+  MySQL → SQLite (better-sqlite3) migration: architecture, schema/migrations,
+  procs-as-JS, PRAGMAs & indexing, backup, packaging, and dev workflow.
 - [`database/schema.md`](./database/schema.md) - Tables and ERD.
 - [`database/stored-procedures.md`](./database/stored-procedures.md) - Every stored
   procedure, grouped by module.

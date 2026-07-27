@@ -190,4 +190,37 @@ export class FileSystemService implements FileSystemServiceInterface {
       throw error;
     }
   }
+
+  /**
+   * Reads any image stored in the user-images directory (shop logo, user
+   * avatar) back as a base64 data URL. Uses the IPC read path so it works
+   * under contextIsolation + webSecurity (unlike a raw `file://` src, which
+   * Chromium blocks when the app is served from http://localhost in dev).
+   */
+  async getUserImageInBase64(imageFileName: string): Promise<string> {
+    if (!imageFileName) { return ''; }
+    try {
+      await this.readyPromise;
+      const base64String: string = await this.electronAPI.fs.readImageBase64(
+        `${this.userImagesDir}\\${imageFileName}`
+      );
+      if (!base64String) { return ''; }
+      return 'data:image/jpeg;base64,' + base64String;
+    } catch (error) {
+      this.loggerService.LogError(error, 'FileSystemService.getUserImageInBase64()');
+      return '';
+    }
+  }
+
+  /**
+   * Saves the shop logo into the user-images directory. Mirrors saveUserImage:
+   * awaits directory init (so userImagesDir is populated) and ensures the dir
+   * exists before writing.
+   */
+  async saveShopLogo(imageFile: any, imageFileName: string) {
+    await this.readyPromise;
+    const saveToPath = this.userImagesDir + '\\' + imageFileName;
+    await this.electronAPI.fs.ensureDir(this.userImagesDir);
+    return this.compressAndSaveImage(saveToPath, imageFile, 'saveShopLogo');
+  }
 }
