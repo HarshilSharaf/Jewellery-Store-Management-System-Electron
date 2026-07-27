@@ -95,28 +95,42 @@ const SUBCATS = ['Plain', 'Antique', 'Studded', 'Temple', 'Modern'];
 const GOLD_PURITIES = ['916', '916', '916', '750', '585', '999'];
 const PAY_MODES = ['cash', 'upi', 'card', 'online'];
 
-function seed() {
-  const db = new Database(DB_PATH);
-  ensureSchema(db);
+/**
+ * Seeds demo data into an ALREADY-OPEN, schema-ready db handle. Does NOT open
+ * or close the db, so the app can call it against its live handle at runtime
+ * (the "Load sample data" action). Shop settings are only seeded when absent,
+ * so this never clobbers a real shop's identity. Deterministic per call (the
+ * PRNG is reset on entry). Returns a summary object.
+ *
+ * @param {import('better-sqlite3').Database} db
+ * @param {{ size?: 'small'|'large', adminUid?: number|null, log?: (m:string)=>void }} [opts]
+ */
+function seedDemoData(db, opts = {}) {
+  const size = /large/i.test(String(opts.size || '')) ? 'large' : 'small';
+  const N = size === 'large'
+    ? { customers: 100, products: 800, orders: 250, karigars: 12, jobs: 20, schemes: 15, repairs: 30 }
+    : { customers: 15, products: 60, orders: 25, karigars: 3, jobs: 3, schemes: 3, repairs: 4 };
+  const log = typeof opts.log === 'function' ? opts.log : () => {};
+  _s = 0x9e3779b9; // reset PRNG so each call is deterministic
+
   const admin = db.prepare("SELECT uid FROM users WHERE userName='admin'").get();
-  const adminUid = admin ? admin.uid : null;
-  const log = (m) => process.stdout.write(m + '\n');
-  log(`Seeding ${SIZE} demo set into ${DB_PATH}`);
+  const adminUid = opts.adminUid != null ? opts.adminUid : (admin ? admin.uid : null);
 
   // -- shop settings (singleton id=1) --------------------------------------
   // Required: save_order / create_repair_ticket read + increment the invoice
-  // and repair counters from this row; without it every number would collide.
-  procs.save_shop_settings(db, [
-    'Radiance Jewellers', '27ABCDE1234F1Z5', 'ABCDE1234F',
-    'Shop 12, Zaveri Bazaar', 'Kalbadevi Road', 'Mumbai', 'Maharashtra', '27',
-    '400002', '022-23401122', 'contact@radiance.example', null,
-    'INV/', 1, 1, 'INR', 'Asia/Kolkata', 1, null, 'a4', 'editorial', adminUid,
-  ]);
-
-  // A seeded demo DB is already fully configured, so skip the first-run wizard
-  // (mark onboarding complete). To exercise the wizard, use a fresh DB or the
-  // in-app "Replay setup" action.
-  procs.set_onboarding_state(db, [1, 1]);
+  // and repair counters from this row. Only seed when ABSENT — at runtime the
+  // shop is already configured by the wizard and must not be overwritten.
+  const hasShop = db.prepare(
+    "SELECT 1 FROM shopsettings WHERE id = 1 AND shopName IS NOT NULL AND TRIM(shopName) <> ''"
+  ).get();
+  if (!hasShop) {
+    procs.save_shop_settings(db, [
+      'Radiance Jewellers', '27ABCDE1234F1Z5', 'ABCDE1234F',
+      'Shop 12, Zaveri Bazaar', 'Kalbadevi Road', 'Mumbai', 'Maharashtra', '27',
+      '400002', '022-23401122', 'contact@radiance.example', null,
+      'INV/', 1, 1, 'INR', 'Asia/Kolkata', 1, null, 'a4', 'editorial', adminUid,
+    ]);
+  }
 
   // -- metal rates ----------------------------------------------------------
   const today = isoDaysAgo(0).slice(0, 10);
@@ -157,7 +171,7 @@ function seed() {
     const tagPrice = round2(rate * netWeight + makingValue * netWeight + stoneWeight * 5000);
     const cat = pick(PRODCATS);
     const row = firstRow(procs.add_product(db, [
-      `SKU-${SIZE[0].toUpperCase()}${1000 + i}`, null, purityCode, `${metal} ${cat}`,
+      `SKU-${size[0].toUpperCase()}${1000 + i}`, null, purityCode, `${metal} ${cat}`,
       grossWeight, netWeight, stoneWeight, stoneWeight ? ri(2000, 20000) : 0,
       'perGram', makingValue, 0, round2(tagPrice * 0.9), tagPrice, '7113',
       masterId[metal], pick(subCatIds), pick(prodCatIds), null,
@@ -278,16 +292,47 @@ function seed() {
   }
 
   // Collect index/table statistics so the query planner has data to work with
-  // immediately (the app also runs PRAGMA optimize on open/close).
+  // immediately (the app also runs PRAGMA optimize on open/close). NOTE: we do
+  // NOT close the db here — the caller owns its lifetime (the app's live handle
+  // at runtime, or the CLI wrapper below).
   db.exec('ANALYZE');
-  db.close();
 
+  const summary = {
+    customers: customers.length,
+    products: products.length,
+    orders: orderOk,
+    ordersFailed: orderErr,
+    payments: paymentsAdded,
+    karigars: karigars.length,
+    jobs: jobsDone,
+    schemes: schemesDone,
+    repairs: repairsDone,
+  };
+  log(`  customers: ${summary.customers}`);
+  log(`  products:  ${summary.products}`);
+  log(`  orders:    ${summary.orders} ok, ${summary.ordersFailed} failed  (+${summary.payments} balance payments)`);
+  log(`  karigars:  ${summary.karigars}, jobs: ${summary.jobs}`);
+  log(`  schemes:   ${summary.schemes}, repairs: ${summary.repairs}`);
+  return summary;
+}
+
+// ---- CLI wrapper ----------------------------------------------------------
+// Opens the demo DB, ensures the schema, seeds, marks onboarding complete
+// (a seeded demo DB is pre-configured), then closes. Only runs when this file
+// is executed directly — importing it (e.g. from the app for runtime sample
+// loading) must NOT trigger a seed.
+function seed() {
+  const db = new Database(DB_PATH);
+  ensureSchema(db);
+  const log = (m) => process.stdout.write(m + '\n');
+  log(`Seeding ${SIZE} demo set into ${DB_PATH}`);
+  const admin = db.prepare("SELECT uid FROM users WHERE userName='admin'").get();
+  seedDemoData(db, { size: SIZE, adminUid: admin ? admin.uid : null, log });
+  // A seeded demo DB is already fully configured -> skip the first-run wizard,
+  // and mark sample data as loaded.
+  procs.set_onboarding_state(db, [1, 1, 1]);
+  db.close();
   log('\nDone.');
-  log(`  customers: ${customers.length}`);
-  log(`  products:  ${products.length}`);
-  log(`  orders:    ${orderOk} ok, ${orderErr} failed  (+${paymentsAdded} balance payments)`);
-  log(`  karigars:  ${karigars.length}, jobs: ${jobsDone}`);
-  log(`  schemes:   ${schemesDone}, repairs: ${repairsDone}`);
   if (process.env.ZEUS_DB_PATH) {
     log('\nLaunch the app with ZEUS_DB_PATH set to this file in the launching shell:');
     log(`  (PowerShell)  $env:ZEUS_DB_PATH = "${DB_PATH}"; npm run electron`);
@@ -298,4 +343,6 @@ function seed() {
   log('Login: admin / admin');
 }
 
-seed();
+if (require.main === module) { seed(); }
+
+module.exports = { seedDemoData };

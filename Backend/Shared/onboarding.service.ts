@@ -19,11 +19,14 @@ export interface OnboardingState {
   completed: boolean;
   /** True once the default admin password has been changed. */
   passwordChanged: boolean;
+  /** True once demo/sample data has been loaded via the in-app action. */
+  sampleDataLoaded: boolean;
 }
 
 const DEFAULT_STATE: OnboardingState = {
   completed: false,
   passwordChanged: false,
+  sampleDataLoaded: false,
 };
 
 /** Coerces the SQLite 0/1 (or boolean) flag column to a real boolean. */
@@ -50,13 +53,14 @@ export class OnboardingService {
       return {
         completed: toBool(row.completed),
         passwordChanged: toBool(row.passwordChanged),
+        sampleDataLoaded: toBool(row.sampleDataLoaded),
       };
     } catch (err) {
       this.loggerService.LogError(err as string, 'OnboardingService.getState()');
       // Fail toward NOT interrupting: on a read error, don't trap the user in
       // the wizard (a broken DB surfaces elsewhere). Only a positive
       // completed=0 read triggers onboarding.
-      return { completed: true, passwordChanged: true };
+      return { completed: true, passwordChanged: true, sampleDataLoaded: false };
     }
   }
 
@@ -64,8 +68,8 @@ export class OnboardingService {
   async patchState(patch: Partial<OnboardingState>): Promise<OnboardingState> {
     const next = { ...(await this.getState()), ...patch };
     await this.databaseService.execute(
-      'call set_onboarding_state(?, ?);',
-      [next.completed ? 1 : 0, next.passwordChanged ? 1 : 0],
+      'call set_onboarding_state(?, ?, ?);',
+      [next.completed ? 1 : 0, next.passwordChanged ? 1 : 0, next.sampleDataLoaded ? 1 : 0],
     );
     return next;
   }
