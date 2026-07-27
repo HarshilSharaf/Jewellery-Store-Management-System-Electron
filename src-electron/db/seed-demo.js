@@ -112,7 +112,7 @@ function seed() {
   procs.save_shop_settings(db, [
     'Radiance Jewellers', '27ABCDE1234F1Z5', 'ABCDE1234F',
     'Shop 12, Zaveri Bazaar', 'Kalbadevi Road', 'Mumbai', 'Maharashtra', '27',
-    '400002', '+91-22-2340-1122', 'contact@radiance.example', null,
+    '400002', '022-23401122', 'contact@radiance.example', null,
     'INV/', 1, 1, 'INR', 'Asia/Kolkata', 1, null, 'a4', 'editorial', adminUid,
   ]);
 
