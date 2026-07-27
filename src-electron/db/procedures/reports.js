@@ -35,6 +35,19 @@ function daysAgo(n) {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * YYYY-MM-DD for the day AFTER `dateStr`. Used to turn an inclusive
+ * `date(col) BETWEEN @from AND @to` (non-sargable — wrapping the indexed column
+ * in date() forces a full scan) into a sargable half-open range
+ * `col >= @from AND col < @toNext`. Columns store ISO 'YYYY-MM-DD HH:MM:SS', so
+ * string comparison against date-only bounds is exact and index-seekable.
+ */
+function nextDay(dateStr) {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
 /** 2-digit zero pad (replaces MySQL LPAD(x,2,'0')). */
 function pad2(n) { return String(n).padStart(2, '0'); }
 
@@ -63,6 +76,7 @@ function get_day_book(db, params) {
   const [dateFrom, dateTo] = params;
   const from = nz(dateFrom) != null ? dateFrom : daysAgo(30);
   const to = nz(dateTo) != null ? dateTo : today();
+  const toNext = nextDay(to); // half-open upper bound so the range is index-seekable
 
   const rows = db.prepare(
     `SELECT
@@ -86,19 +100,19 @@ function get_day_book(db, params) {
           COALESCE(SUM(p.amount), 0) AS total,
           COUNT(DISTINCT p.invoiceId) AS invoiceCount
         FROM payments p
-        WHERE date(p.receivedOn) BETWEEN @from AND @to
+        WHERE p.receivedOn >= @from AND p.receivedOn < @toNext
         GROUP BY date(p.receivedOn)
       ) pays
       LEFT JOIN (
         SELECT date(i.createdAt) AS invDate,
                COALESCE(SUM(i.subTotalTaxable), 0) AS totalTaxableValue
         FROM invoices i
-        WHERE date(i.createdAt) BETWEEN @from AND @to
+        WHERE i.createdAt >= @from AND i.createdAt < @toNext
           AND i.cancelledAt IS NULL
         GROUP BY date(i.createdAt)
       ) inv ON inv.invDate = pays.txDate
       ORDER BY pays.txDate ASC`
-  ).all({ from, to });
+  ).all({ from, toNext });
 
   return [hydrateReport(rows, {
     money: ['cash', 'cheque', 'upi', 'card', 'online', 'total', 'totalTaxableValue'],
@@ -131,6 +145,7 @@ function get_gstr1_export_rows(db, params) {
   // Date.UTC(year, month, 0) -> last day of `month` (1-based) => LAST_DAY().
   const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
   const periodEnd = `${year}-${pad2(month)}-${pad2(lastDay)}`;
+  const periodEndNext = nextDay(periodEnd); // half-open upper bound (sargable range)
 
   const moneyCols = ['taxableValue', 'cgstAmount', 'sgstAmount', 'igstAmount', 'invoiceValue'];
 
@@ -158,10 +173,10 @@ function get_gstr1_export_rows(db, params) {
         i.grandTotal AS invoiceValue
       FROM invoices i
       JOIN customers c ON c.id = i.soldToCustomer
-      WHERE date(i.createdAt) BETWEEN @from AND @to
+      WHERE i.createdAt >= @from AND i.createdAt < @toNext
         AND i.cancelledAt IS NULL
       ORDER BY i.createdAt ASC`
-  ).all({ from: periodStart, to: periodEnd });
+  ).all({ from: periodStart, toNext: periodEndNext });
 
   const summary = db.prepare(
     `SELECT
@@ -173,11 +188,11 @@ function get_gstr1_export_rows(db, params) {
         COALESCE(SUM(i.totalIgst), 0)  AS igstAmount,
         COALESCE(SUM(i.grandTotal), 0) AS invoiceValue
       FROM invoices i
-      WHERE date(i.createdAt) BETWEEN @from AND @to
+      WHERE i.createdAt >= @from AND i.createdAt < @toNext
         AND i.cancelledAt IS NULL
       GROUP BY i.hsn
       ORDER BY i.hsn ASC`
-  ).all({ from: periodStart, to: periodEnd });
+  ).all({ from: periodStart, toNext: periodEndNext });
 
   return [
     hydrateReport(detail, { money: moneyCols }),
@@ -234,6 +249,7 @@ function get_sales_register(db, params) {
   const [dateFrom, dateTo, customerGuid, statusFilter] = params;
   const from = nz(dateFrom) != null ? dateFrom : daysAgo(30);
   const to = nz(dateTo) != null ? dateTo : today();
+  const toNext = nextDay(to); // half-open upper bound (sargable range)
 
   let customerId = null;
   if (customerGuid != null && customerGuid !== '') {
@@ -273,14 +289,14 @@ function get_sales_register(db, params) {
         CASE WHEN c.gstin IS NOT NULL AND c.gstin <> '' THEN 'B2B' ELSE 'B2CS' END AS invoiceType
       FROM invoices i
       JOIN customers c ON c.id = i.soldToCustomer
-      WHERE date(i.createdAt) BETWEEN @from AND @to
+      WHERE i.createdAt >= @from AND i.createdAt < @toNext
         AND (@cid IS NULL OR i.soldToCustomer = @cid)
         AND (@status IS NULL OR @status = ''
              OR (@status = 'paid'      AND i.cancelledAt IS NULL AND i.isPaymentDone = 1)
              OR (@status = 'pending'   AND i.cancelledAt IS NULL AND i.isPaymentDone = 0)
              OR (@status = 'cancelled' AND i.cancelledAt IS NOT NULL))
       ORDER BY i.createdAt ASC`
-  ).all({ from, to, cid: customerId, status });
+  ).all({ from, toNext, cid: customerId, status });
 
   return [hydrateReport(rows, {
     money: ['cgstAmount', 'sgstAmount', 'igstAmount', 'oldGoldCredit'],

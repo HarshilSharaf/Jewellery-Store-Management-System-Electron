@@ -60,23 +60,25 @@ function defaultPermissions(type) {
 function loginUser(db, params) {
   const [uName] = params;
 
-  const exists = db.prepare('SELECT 1 FROM users WHERE userName = ?').get(nz(uName));
-  if (!exists) { return []; }
+  // Stamp last-login + re-read in one transaction. The UPDATE's `.changes`
+  // replaces the separate existence pre-SELECT (no user -> no result set).
+  const run = db.transaction(() => {
+    const info = db.prepare(
+      `UPDATE users
+          SET last_login_date = datetime('now'),
+              lastLoginAt     = datetime('now')
+        WHERE userName = ?`
+    ).run(nz(uName));
+    if (info.changes === 0) { return null; }
+    return db.prepare(
+      `SELECT uid, userName, email, type, permissions, password, lastLoginAt, last_login_date
+         FROM users
+        WHERE userName = ?`
+    ).get(nz(uName));
+  });
 
-  db.prepare(
-    `UPDATE users
-        SET last_login_date = datetime('now'),
-            lastLoginAt     = datetime('now')
-      WHERE userName = ?`
-  ).run(nz(uName));
-
-  const row = db.prepare(
-    `SELECT uid, userName, email, type, permissions, password, lastLoginAt, last_login_date
-       FROM users
-      WHERE userName = ?`
-  ).get(nz(uName));
-
-  return [hydrateRows([row])];
+  const row = run();
+  return row ? [hydrateRows([row])] : [];
 }
 
 /**

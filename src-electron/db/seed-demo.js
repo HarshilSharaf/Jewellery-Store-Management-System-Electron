@@ -25,6 +25,7 @@ const fs = require('fs');
 const Database = require('better-sqlite3');
 const bcrypt = require('bcryptjs');
 const procs = require('./procedures');
+const { applyMigrations } = require('./migrate');
 
 // ---- config ---------------------------------------------------------------
 const SIZE = /large/i.test(process.argv.slice(2).join(' ')) || /large/i.test(process.env.SEED_SIZE || '')
@@ -68,22 +69,18 @@ const firstRow = (sets) => (sets && sets[0] && sets[0][0]) ? sets[0][0] : null;
 function ensureSchema(db) {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
-  let v = db.pragma('user_version', { simple: true });
-  if (v < 1) {
-    db.exec(fs.readFileSync(path.join(SCHEMA_DIR, '001_baseline.sql'), 'utf8'));
-    if (db.prepare('SELECT COUNT(*) c FROM users').get().c === 0) {
-      db.prepare(
-        `INSERT INTO users (userName, email, password, type, permissions)
-         VALUES ('admin','admin@localhost',?, 'admin', NULL)`
-      ).run(bcrypt.hashSync('admin', 10));
-    }
-    db.pragma('user_version = 1');
-    v = 1;
-  }
-  if (v < 2) {
-    db.exec(fs.readFileSync(path.join(SCHEMA_DIR, '002_p2_tables.sql'), 'utf8'));
-    db.pragma('user_version = 2');
-  }
+  // Use the SAME migration runner as the app so the demo DB gets every
+  // migration (including the performance indexes), never a hand-rolled subset.
+  applyMigrations(db, {
+    seedBaseline: (d) => {
+      if (d.prepare('SELECT COUNT(*) c FROM users').get().c === 0) {
+        d.prepare(
+          `INSERT INTO users (userName, email, password, type, permissions)
+           VALUES ('admin','admin@localhost',?, 'admin', NULL)`
+        ).run(bcrypt.hashSync('admin', 10));
+      }
+    },
+  });
 }
 
 // ---- data pools -----------------------------------------------------------
@@ -275,6 +272,9 @@ function seed() {
     } catch (e) { log(`  repair skipped: ${e.message}`); }
   }
 
+  // Collect index/table statistics so the query planner has data to work with
+  // immediately (the app also runs PRAGMA optimize on open/close).
+  db.exec('ANALYZE');
   db.close();
 
   log('\nDone.');

@@ -111,12 +111,13 @@ function delete_user(db, params) {
 function delete_user_image(db, params) {
   const [uid] = params;
 
-  const prev = db.prepare('SELECT imagePath FROM users WHERE uid = ?').get(nz(uid));
-  const oldFileName = prev ? prev.imagePath : null;
+  const run = db.transaction(() => {
+    const prev = db.prepare('SELECT imagePath FROM users WHERE uid = ?').get(nz(uid));
+    db.prepare('UPDATE users SET imagePath = NULL WHERE uid = ?').run(nz(uid));
+    return prev ? prev.imagePath : null;
+  });
 
-  db.prepare('UPDATE users SET imagePath = NULL WHERE uid = ?').run(nz(uid));
-
-  return [[hydrateRow({ oldFileName })]];
+  return [[hydrateRow({ oldFileName: run() })]];
 }
 
 /**
@@ -211,19 +212,18 @@ function update_user_details(db, params) {
 function update_user_image(db, params) {
   const [uid, imageFileName] = params;
 
-  const prev = db.prepare('SELECT imagePath FROM users WHERE uid = ?').get(nz(uid));
-  const oldFileName = prev ? prev.imagePath : null;
-
   // buildImageName(guid, tag, original) => `${guid}-${tag}-${original}`; passing
   // ('user', uid, imageFileName) reproduces the SP's `user-<uid>-<file>` exactly.
   const newName = buildImageName('user', uid, imageFileName);
 
-  db.prepare('UPDATE users SET imagePath = ? WHERE uid = ?').run(newName, nz(uid));
+  const run = db.transaction(() => {
+    const prev = db.prepare('SELECT imagePath FROM users WHERE uid = ?').get(nz(uid));
+    db.prepare('UPDATE users SET imagePath = ? WHERE uid = ?').run(newName, nz(uid));
+    return prev ? prev.imagePath : null;
+  });
 
-  const row = db.prepare('SELECT imagePath FROM users WHERE uid = ?').get(nz(uid));
-  const imagePath = row ? row.imagePath : null;
-
-  return [[hydrateRow({ imagePath, oldFileName })]];
+  // imagePath is exactly newName (no redundant re-SELECT).
+  return [[hydrateRow({ imagePath: newName, oldFileName: run() })]];
 }
 
 module.exports = {

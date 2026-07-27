@@ -50,13 +50,18 @@ function add_customer(db, params) {
  */
 function get_all_customers(db, params) {
   const [fetchImage, itemsPerPage, pageNumber, fetchAll, searchQuery] = params;
-  const pattern = likePattern(searchQuery);
   const withImage = truthy(fetchImage);
+  const hasSearch = searchQuery != null && String(searchQuery).trim() !== '';
+  const pattern = likePattern(searchQuery);
 
-  const where =
-    `WHERE A.deletedAt IS NULL
-       AND (A.firstName LIKE @p OR A.lastName LIKE @p OR A.phoneNumber LIKE @p
-            OR A.email LIKE @p OR A.gstin LIKE @p)`;
+  // Skip the 5-column LIKE when there is no search term. The default (no-search)
+  // list is the common load, and an unconditional `LIKE '%%'` forces a full-table
+  // COUNT instead of a covering-index count over (deletedAt, createdAt).
+  const searchClause = hasSearch
+    ? ` AND (A.firstName LIKE @p OR A.lastName LIKE @p OR A.phoneNumber LIKE @p
+             OR A.email LIKE @p OR A.gstin LIKE @p)`
+    : '';
+  const where = `WHERE A.deletedAt IS NULL${searchClause}`;
 
   const selectCols =
     `A.id, A.customerGuid, A.firstName, A.lastName, A.email, A.gender,
@@ -65,21 +70,21 @@ function get_all_customers(db, params) {
 
   if (!truthy(fetchAll)) {
     const { limit, offset } = pageBounds(itemsPerPage, pageNumber);
-    const count = db.prepare(
-      `SELECT COUNT(A.id) AS totalRecords FROM customers A ${where}`
-    ).get({ p: pattern });
+    const countStmt = db.prepare(`SELECT COUNT(A.id) AS totalRecords FROM customers A ${where}`);
+    const count = hasSearch ? countStmt.get({ p: pattern }) : countStmt.get();
 
     const rows = db.prepare(
       `SELECT ${selectCols} FROM customers A ${where}
         ORDER BY A.createdAt DESC LIMIT @limit OFFSET @offset`
-    ).all({ p: pattern, limit, offset });
+    ).all(hasSearch ? { p: pattern, limit, offset } : { limit, offset });
 
     return [[count], hydrateRows(rows)];
   }
 
-  const rows = db.prepare(
+  const rowsStmt = db.prepare(
     `SELECT ${selectCols} FROM customers A ${where} ORDER BY A.createdAt DESC`
-  ).all({ p: pattern });
+  );
+  const rows = hasSearch ? rowsStmt.all({ p: pattern }) : rowsStmt.all();
   return [hydrateRows(rows)];
 }
 

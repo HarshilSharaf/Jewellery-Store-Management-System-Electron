@@ -26,24 +26,9 @@ let Database = null;      // lazy: better-sqlite3 is native; defer require so a
                           // silent app-start crash.
 let db = null;
 
-/**
- * Ordered migration steps. Each runs inside its own transaction; on success
- * `user_version` is bumped to `version`. Add new steps with strictly
- * increasing version numbers — never edit a shipped step.
- */
-const MIGRATIONS = [
-  {
-    version: 1,
-    name: 'baseline',
-    sqlFile: '001_baseline.sql',
-    seed: seedBaseline,
-  },
-  {
-    version: 2,
-    name: 'p2_tables',
-    sqlFile: '002_p2_tables.sql',
-  },
-];
+// Schema migration list + runner live in ./migrate, shared with the demo
+// seeder so the two can never drift.
+const { applyMigrations } = require('./migrate');
 
 /** Repo-local dev database, anchored to this file (not cwd) so the app and the
  *  seeder always resolve to the same absolute path. Kept in one place. */
@@ -62,13 +47,6 @@ function resolveDbPath() {
     return DEV_DB_PATH;
   }
   return path.join(app.getPath('userData'), 'jewellery.db');
-}
-
-function readSchema(sqlFile) {
-  // __dirname resolves inside the asar in production; Electron's patched fs
-  // reads packed files transparently, so no extraResources needed for .sql.
-  const p = path.join(__dirname, 'schema', sqlFile);
-  return fs.readFileSync(p, 'utf8');
 }
 
 /**
@@ -97,31 +75,6 @@ function seedBaseline(database) {
   );
 }
 
-function runMigrations(database) {
-  let current = database.pragma('user_version', { simple: true });
-  const pending = MIGRATIONS.filter((m) => m.version > current)
-    .sort((a, b) => a.version - b.version);
-
-  if (!pending.length) {
-    logger.info(`[db] schema up to date at user_version=${current}`);
-    return;
-  }
-
-  for (const m of pending) {
-    logger.info(`[db] applying migration v${m.version} (${m.name})`);
-    const apply = database.transaction(() => {
-      if (m.sqlFile) { database.exec(readSchema(m.sqlFile)); }
-      if (typeof m.seed === 'function') { m.seed(database); }
-      // user_version cannot be parameterised; version is an integer literal
-      // from our own trusted list, never user input.
-      database.pragma(`user_version = ${m.version}`);
-    });
-    apply();
-    current = m.version;
-    logger.info(`[db] migration v${m.version} applied; user_version=${current}`);
-  }
-}
-
 /**
  * Opens (or creates) the database, applies PRAGMAs, and runs migrations.
  * Safe to call once at app startup. Returns the live handle.
@@ -135,12 +88,27 @@ function initDatabase() {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 
   db = new Database(dbPath);
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  db.pragma('busy_timeout = 5000');
-  db.pragma('synchronous = NORMAL');
+  // --- PRAGMAs (per-connection unless noted) --------------------------------
+  // WAL + NORMAL sync is the standard production baseline: readers never block
+  // the single writer, and fsync leaves the commit critical path while staying
+  // corruption-safe. The rest are performance tuning appropriate for a small,
+  // read-heavy (dashboards/reports) single-shop database.
+  db.pragma('journal_mode = WAL');       // persistent; concurrent read/write
+  db.pragma('foreign_keys = ON');        // enforce FKs (OFF by default!)
+  db.pragma('busy_timeout = 5000');      // wait out brief lock contention
+  db.pragma('synchronous = NORMAL');     // safe + fast under WAL
+  db.pragma('cache_size = -65536');      // 64 MB page cache (negative = KiB)
+  db.pragma('temp_store = MEMORY');      // sorts / GROUP BY temp b-trees in RAM
+  db.pragma('mmap_size = 268435456');    // up to 256 MB memory-mapped reads
+  db.pragma('journal_size_limit = 67108864'); // cap WAL at 64 MB after checkpoint
+  db.pragma('analysis_limit = 400');     // bound the cost of PRAGMA optimize/ANALYZE
 
-  runMigrations(db);
+  applyMigrations(db, { seedBaseline, log: (m) => logger.info(`[db] ${m}`) });
+
+  // Give the query planner fresh statistics for the indexes below. Cheap thanks
+  // to analysis_limit; SQLite recommends running optimize on connection open
+  // (and close). See closeDatabase().
+  try { db.pragma('optimize'); } catch (e) { logger.warn('[db] optimize failed:', e && e.message); }
 
   logger.info(`[db] SQLite ready at ${dbPath}`);
   return db;
@@ -153,6 +121,9 @@ function getDb() {
 
 function closeDatabase() {
   if (db) {
+    // SQLite recommends `PRAGMA optimize` just before closing a long-lived
+    // connection so accumulated query stats are persisted for next launch.
+    try { db.pragma('optimize'); } catch (e) { logger.warn('[db] optimize on close failed:', e && e.message); }
     try { db.close(); } catch (e) { logger.warn('[db] close failed:', e && e.message); }
     db = null;
   }
