@@ -186,4 +186,6 @@ module.exports = {
   restoreBackup,
   listBackups,
   deleteBackup,
+  // Exposed for the decrypt-backup CLI (inspect an archive without restoring).
+  decryptFile,
 };

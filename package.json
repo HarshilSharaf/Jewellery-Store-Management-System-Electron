@@ -13,6 +13,7 @@
         "test:db": "node --test \"src-electron/db/**/*.test.js\"",
         "seed:demo": "node src-electron/db/seed-demo.js",
         "seed:demo:large": "node src-electron/db/seed-demo.js large",
+        "backup:decrypt": "node src-electron/db/decrypt-backup.js",
         "dev": "ng serve",
         "electron": "electron .",
         "electron-dev": "concurrently \"ng serve\" \"npm run electron\"",
