@@ -1,0 +1,49 @@
+name: Release (Windows installer)
+
+# Build the Windows .exe installer and publish it to this repo's Releases page.
+# Trigger by pushing a version tag that matches package.json "version", e.g.:
+#   (bump "version" in package.json to 1.2.3, commit)
+#   git tag v1.2.3 && git push origin v1.2.3
+# You can also run it manually from the Actions tab (workflow_dispatch); a
+# manual run builds + uploads to a draft release for the current version.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write        # required so electron-builder can create the Release + upload assets
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout (with the client submodule)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive   # the Angular UI lives in the `client` submodule
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # Full install (NOT --ignore-scripts): the runner has Python + MSVC, so
+      # better-sqlite3 builds fine, and electron's postinstall (which downloads
+      # the Electron binary) must run. better-sqlite3 v13 is N-API, so the
+      # binary is ABI-portable and npmRebuild:false is safe.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Angular renderer
+        run: npm run build
+
+      - name: Package installer + publish to GitHub Releases
+        run: npx electron-builder --win --publish always
+        env:
+          # Provided automatically by Actions; electron-builder reads GH_TOKEN.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,94 +1,129 @@
 # Releases: build and package
 
-Current release story is minimal. This document captures what exists today and
-the recommended path forward.
+The app ships as a **Windows NSIS `.exe` installer** built with
+[`electron-builder`](https://www.electron.build/). The data layer is embedded
+SQLite (see [`../database/sqlite-migration.md`](../database/sqlite-migration.md)),
+so there is **no database server, `.env`, or Docker** to deploy — the installer
+is fully self-contained.
 
-## Current state
+## TL;DR
 
-The `package.json` scripts are:
-
-| Script                   | Effect                                                    |
-| ------------------------ | --------------------------------------------------------- |
-| `npm run build`          | `ng build --base-href ./ --configuration=production` -> `dist/browser/` |
-| `npm run electron`       | Launches Electron pointing at the current `dist/` build OR the dev server, depending on `ELECTRON_IS_DEV`. |
-| `npm run electron-build` | `npm run build` followed by `set ELECTRON_IS_DEV=0 && electron .` (Windows-cmd syntax). |
-
-There is **no packaging step**. `npm run electron-build` just runs the Angular
-build then launches Electron pointing at the built assets. It does not produce
-a `.exe`, `.dmg`, `.AppImage`, or any redistributable artifact.
-
-## What "release" looks like today
-
-If you want to hand someone a working copy right now, you have two options:
-
-1. **Clone + install.** Give them the repo URL and this documentation.
-2. **Zip the built directory.** Run `npm run build`, then zip
-   `dist/browser/`, `src-electron/`, `package.json`, `package-lock.json`, and
-   `Scripts/`. The recipient runs `npm install --production` and
-   `npm run electron-build`. Still requires Node + Electron on the target.
-
-Neither is a real installer.
-
-## Recommended: electron-builder
-
-The intended future path is to add
-[`electron-builder`](https://www.electron.build/) as a dev dependency and
-configure it to produce:
-
-- Windows: `.exe` NSIS installer + portable `.exe`.
-- macOS: `.dmg` (unsigned unless a Developer ID cert is added).
-- Linux: `.AppImage`.
-
-Skeleton `package.json` block (illustrative - not yet applied):
-
-```json
-{
-  "scripts": {
-    "dist": "electron-builder --publish never",
-    "dist:win": "electron-builder --win --publish never"
-  },
-  "build": {
-    "appId": "com.jewellery.store.management.system",
-    "productName": "Jewellery Store Management",
-    "directories": { "output": "release" },
-    "files": [
-      "dist/browser/**/*",
-      "src-electron/**/*",
-      "package.json"
-    ],
-    "asar": true,
-    "win": { "target": ["nsis", "portable"] },
-    "mac": { "target": ["dmg"] },
-    "linux": { "target": ["AppImage"] }
-  }
-}
+```bash
+# one-command local installer  ->  release\Jewellery Store Manager-<version>-x64.exe
+npm run dist
 ```
 
-Gaps to close before this can ship:
+To publish a versioned build to the GitHub **Releases** page, push a `v*` tag —
+CI does the rest (see [Automated releases](#automated-releases-github)).
 
-- **Icon assets.** Need `.ico`, `.icns`, and `.png` at multiple sizes.
-- **Auto-update.** Not needed for a single-shop offline install; can be left
-  out.
-- **Signing.** Windows code-signing certificate + macOS Developer ID +
-  notarization are required for anything that won't trigger SmartScreen / Gatekeeper
-  warnings.
-- **`env` in production.** The current renderer reads DB credentials via
-  `electron-store` (seeded from `.env` on first launch). A packaged binary
-  cannot ship `.env` - either bundle a default `defaultDbInfo` in the source or
-  prompt the user via the Settings page on first launch and store the result.
-- **MySQL server.** The app has no bundled MySQL; the deployment story must
-  document either "install MySQL 8" or "run the Docker compose stack" before
-  first launch.
+## Install dependencies
+
+better-sqlite3 v13 ships **N-API prebuilt binaries** (one binary works for both
+Node and Electron), so no native compilation is needed.
+
+- **Local dev machines:** `npm ci --ignore-scripts` — npm would otherwise try to
+  auto-compile better-sqlite3 via node-gyp (needs Python + VS Build Tools). The
+  bundled prebuild is used instead.
+- **CI (GitHub runner):** plain `npm ci` — the runner has the toolchain, and
+  `electron`'s postinstall (which downloads the Electron binary) must run.
+
+`build.npmRebuild` is `false`, so electron-builder packages the installed native
+module as-is (safe because N-API binaries are ABI-portable), and `asarUnpack`
+keeps `better-sqlite3` / `serialport` `.node` files outside the asar so they can
+be loaded from disk.
+
+## Local build
+
+| Script | Effect |
+| --- | --- |
+| `npm run build` | Angular production build → `dist/browser/` |
+| `npm run pack` | build + `electron-builder --dir` → unpacked app in `release\win-unpacked\` (fast, no installer) |
+| `npm run dist` | build + `electron-builder` → **NSIS installer** in `release\` |
+| `npm run release` | build + `electron-builder --win --publish always` (uploads to GitHub Releases; needs `GH_TOKEN`) |
+
+Output: `release\Jewellery Store Manager-<version>-x64.exe` plus `latest.yml`
+(the auto-update manifest).
+
+> **Windows file-lock gotcha:** if a build fails with
+> `remove release\win-unpacked\resources\app.asar: … used by another process`,
+> a previous copy of the app is still running **or** a File Explorer window is
+> open in `release\` (thumbnail/preview handle). Close it, or build to a clean
+> dir: `npx electron-builder -c.directories.output=release-build`. Adding the
+> repo to Windows Defender exclusions avoids the lock and speeds builds.
+
+## Automated releases (GitHub)
+
+`.github/workflows/release.yml` builds the installer on `windows-latest` and
+publishes it to the repo's **Releases** page.
+
+**Trigger:** push a tag matching `v*`, or run it manually from the Actions tab.
+
+```bash
+# 1. bump version to match the tag (electron-builder names artifacts from it)
+#    package.json  "version": "1.0.0"
+git commit -am "chore: release v1.0.0"
+# 2. tag + push
+git tag v1.0.0
+git push origin main --tags
+```
+
+The workflow checks out the repo **and the `client` submodule** (`submodules:
+recursive`), runs `npm ci` → `npm run build` → `electron-builder --win
+--publish always`, and uploads the `.exe` + `latest.yml` to a **draft Release
+`v1.0.0`**. Review it on the Releases page and click **Publish**; users then
+download the `.exe` from there.
+
+Notes:
+- **Version must equal the tag** (`version: 1.0.0` ⇄ tag `v1.0.0`).
+- **Workflow-from-tag:** a tag-triggered run uses the workflow as it exists in
+  the tagged commit — commit the workflow before tagging.
+- **Submodule access:** the default `GITHUB_TOKEN` works for a public or
+  same-account `client` submodule; a *separate private* submodule needs a PAT
+  passed to `actions/checkout`.
+
+## What the installed app does at runtime
+
+1. Installs per-user (config: `oneClick:false`, `perMachine:false`,
+   `allowToChangeInstallationDirectory:true`).
+2. On first launch, `initDatabase()` opens the DB at the OS per-user app-data
+   dir — `%APPDATA%\Jewellery Store Manager\jewellery.db` on Windows (**not**
+   the repo `demo.db`, which is dev-only). It's created if absent.
+3. Migrations `001`–`004` run, seeding reference data (purities, tax slabs) and
+   the default **`admin` / `admin`** user. No demo/business data.
+4. The shopkeeper configures Shop Identity and enters real data.
+5. That DB lives in app-data and is **never touched by installing a new
+   version** (`deleteAppDataOnUninstall:false` keeps it even on uninstall), so
+   updates never lose data. New versions just apply any pending migrations on
+   next launch.
+
+Backups: `db.backup()` snapshot → AES-256-GCM `.db.enc` in the configured backup
+dir (or `userData\backups`); `npm run backup:decrypt` reads an archive back to a
+plain `.db`.
+
+## Configuration reference (`package.json` → `build`)
+
+- `appId`, `productName` "Jewellery Store Manager", `artifactName`
+  `${productName}-${version}-${arch}.${ext}`, `directories.output` = `release`.
+- `win.target` = `nsis` (x64); `win.signAndEditExecutable:false` (see gaps).
+- `publish` → GitHub provider (`HarshilSharaf/Jewellery-Store-Management-System-Electron`).
+
+## Remaining gaps
+
+- **Code signing.** The build is unsigned (`signAndEditExecutable:false` avoids
+  the winCodeSign toolchain), so Windows SmartScreen warns "unknown publisher"
+  on first run. A code-signing certificate (stored as an Actions secret) removes
+  this; add it before wide distribution.
+- **Icon assets.** No custom `.ico` yet — the installer/app use the default
+  Electron icon. Add `build.win.icon`.
+- **macOS / Linux targets.** Only Windows NSIS is configured today.
+- **Auto-update.** `latest.yml` is published, so wiring `electron-updater` is a
+  small follow-up if in-app updates are wanted.
+- **Default credentials.** `admin`/`admin` must be changed before a real shop
+  uses it (force-change-on-first-login is a TODO).
 
 ## Version numbers
 
-`package.json` version is currently `0.0.0`. See
-[`../../CHANGELOG.md`](../../CHANGELOG.md) for release entries; bump `version`
-in `package.json` in the same commit that adds a new changelog entry.
-
-Suggested SemVer-lite policy:
-
-- `0.x.y` while the app has no signed installer or upgrade path.
-- Bump `x` when a stored-procedure signature or a database column changes in a
-  way that breaks existing installs.
-- Bump `y` for UI, bug-fix, and dependency-hygiene releases.
+`package.json` `version` drives artifact + release names. Bump it in the same
+commit you tag. Suggested SemVer-lite: `0.x.y` until a signed installer exists;
+bump the minor when a schema migration changes existing installs, the patch for
+UI/bug-fix/dependency releases.

@@ -19,7 +19,8 @@
         "electron-dev": "concurrently \"ng serve\" \"npm run electron\"",
         "electron-build": "npm run build && set ELECTRON_IS_DEV=0 && electron .",
         "pack": "npm run build && electron-builder --dir",
-        "dist": "npm run build && electron-builder"
+        "dist": "npm run build && electron-builder",
+        "release": "npm run build && electron-builder --win --publish always"
     },
     "private": true,
     "engines": {
@@ -91,6 +92,13 @@
         },
         "npmRebuild": false,
         "buildDependenciesFromSource": false,
+        "publish": [
+            {
+                "provider": "github",
+                "owner": "HarshilSharaf",
+                "repo": "Jewellery-Store-Management-System-Electron"
+            }
+        ],
         "files": [
             "dist/**/*",
             "src-electron/**/*",
