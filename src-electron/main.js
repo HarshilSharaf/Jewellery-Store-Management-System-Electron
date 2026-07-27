@@ -701,17 +701,6 @@ function registerIpcHandlers() {
   ipcMain.handle('store:set',    (_event, key, value) => { store.set(key, value); return true; });
   ipcMain.handle('store:delete', (_event, key)        => { store.delete(key); return true; });
 
-  // Retained for renderer bootstrap compatibility. There are no DB credentials
-  // under SQLite; this returns a harmless stub (db:initialize is a no-op).
-  ipcMain.handle('store:getDefaultDbInfo', () => ({
-    DATABASE_NAME:     'sqlite',
-    DATABASE_USERNAME: '',
-    DATABASE_PASSWORD: '',
-    DATABASE_PORT:     0,
-    DATABASE_HOST:     'local',
-    LAST_UPDATED_ON:   new Date().toUTCString(),
-  }));
-
   // -- Auth (bcrypt lives here now; renderer no longer imports bcryptjs) ----
   ipcMain.handle('auth:compareHash', async (_event, plaintext, hash) => {
     if (typeof plaintext !== 'string' || typeof hash !== 'string') {

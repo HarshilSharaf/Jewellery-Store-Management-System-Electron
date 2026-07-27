@@ -122,7 +122,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     get:              (key)        => ipcRenderer.invoke('store:get', key),
     set:              (key, value) => ipcRenderer.invoke('store:set', key, value),
     delete:           (key)        => ipcRenderer.invoke('store:delete', key),
-    getDefaultDbInfo: ()           => ipcRenderer.invoke('store:getDefaultDbInfo'),
   },
 
   auth: {
