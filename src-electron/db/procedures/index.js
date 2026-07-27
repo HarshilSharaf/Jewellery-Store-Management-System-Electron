@@ -26,6 +26,7 @@ const repair = require('./repair');
 const reports = require('./reports');
 const savingSchemes = require('./savingSchemes');
 const karigar = require('./karigar');
+const onboarding = require('./onboarding');
 
 module.exports = {
   ...purities,
@@ -45,4 +46,5 @@ module.exports = {
   ...reports,
   ...savingSchemes,
   ...karigar,
+  ...onboarding,
 };

@@ -113,6 +113,11 @@ function seed() {
     'INV/', 1, 1, 'INR', 'Asia/Kolkata', 1, null, 'a4', 'editorial', adminUid,
   ]);
 
+  // A seeded demo DB is already fully configured, so skip the first-run wizard
+  // (mark onboarding complete). To exercise the wizard, use a fresh DB or the
+  // in-app "Replay setup" action.
+  procs.set_onboarding_state(db, [1, 1]);
+
   // -- metal rates ----------------------------------------------------------
   const today = isoDaysAgo(0).slice(0, 10);
   procs.save_metal_rates(db, [today, 'AM', 'manual', adminUid,
