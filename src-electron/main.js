@@ -19,7 +19,7 @@
  * better-sqlite3 implementation. There is no MySQL/mysql2 anymore.
  */
 
-const { app, BrowserWindow, ipcMain, dialog, session } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, session, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const ElectronStore = require('electron-store');
@@ -130,10 +130,35 @@ function routeSql(sql, values) {
 }
 
 // ---------------------------------------------------------------------------
+// i18n build selection
+// ---------------------------------------------------------------------------
+// Maps the UI language code (stored by the settings page) to the localized
+// build folder produced by `ng build --localize`. The source locale (English)
+// builds into `en-IN`.
+const LOCALE_DIR_BY_CODE = {
+  en: 'en-IN', 'en-IN': 'en-IN', hi: 'hi', gu: 'gu', mr: 'mr',
+};
+
+/**
+ * Resolves which localized build folder to load from the persisted
+ * `localePreference`. Returns the subfolder name (e.g. 'hi'), or '' when the
+ * build is not localized (single bundle directly under dist/browser/).
+ */
+function resolveLocaleDir(browserDir) {
+  let pref = 'en-IN';
+  try { const v = store.get('localePreference'); if (v) { pref = v; } } catch (_) { /* ignore */ }
+  const dir = LOCALE_DIR_BY_CODE[pref] || 'en-IN';
+  try {
+    if (fs.existsSync(path.join(browserDir, dir, 'index.html'))) { return dir; }
+    if (fs.existsSync(path.join(browserDir, 'en-IN', 'index.html'))) { return 'en-IN'; }
+  } catch (_) { /* ignore */ }
+  return '';
+}
+
+// ---------------------------------------------------------------------------
 // Windows
 // ---------------------------------------------------------------------------
 let mainWindow = null;
-let splashScreen = null;
 
 const createWindow = () => {
   mainWindow = new BrowserWindow({
@@ -141,10 +166,12 @@ const createWindow = () => {
     height: 800,
     skipTaskbar: false,
     show: false,
-    // Warm ivory pre-paint matches the app's light-theme --color-bg
-    // (--sand-2 = #f9f9f8 in client/styles.scss). Chromium paints this
-    // BEFORE Angular's first frame, eliminating the white-flash gap
-    // between splash-destroy and renderer first paint.
+    // Frameless: no native title bar, no window buttons, no OS menu. The app
+    // draws its own title bar + minimize/maximize/close controls (see the
+    // renderer WindowTitlebarComponent + the window:* IPC handlers below).
+    frame: false,
+    // Warm ivory pre-paint matches the app's light-theme --color-bg so there
+    // is no white flash before Angular's first frame.
     backgroundColor: '#f9f9f8',
     webPreferences: {
       // Section 5: Electron hardening. Renderer must not touch Node.
@@ -158,35 +185,34 @@ const createWindow = () => {
     },
   });
 
-  // Splash is a bare Chromium tab with no JS beyond CSS animations; drop
-  // the webPreferences block. Electron 20+ defaults (sandbox: true,
-  // contextIsolation: true, nodeIntegration: false) are the right posture
-  // and drop ~30 MB per splash-renderer overhead.
-  splashScreen = new BrowserWindow({
-    width: 800,
-    height: 600,
-    transparent: true,
-    frame: false,
-    alwaysOnTop: true,
-    center: true,
-    backgroundColor: '#f9f9f8',
-  });
-
-  // ready-to-show pre-paints the background but does NOT show the window:
-  // splash-close IPC drives the actual show. This kills the white flash
-  // between splash-destroy and Angular first paint.
+  // Show once the first frame is ready (no splash screen). A short fallback
+  // covers the rare case where ready-to-show never fires (e.g. a stalled load).
   mainWindow.once('ready-to-show', () => {
-    logger.info('[main] mainWindow ready-to-show; awaiting splash-close IPC.');
+    if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.show(); }
   });
+  const showFallback = setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      mainWindow.show();
+    }
+  }, 8_000);
+  mainWindow.on('closed', () => clearTimeout(showFallback));
+
+  // Keep the renderer's custom title-bar maximize/restore icon in sync.
+  mainWindow.on('maximize',   () => { try { mainWindow.webContents.send('window:maximized', true); }  catch (_) { /* ignore */ } });
+  mainWindow.on('unmaximize', () => { try { mainWindow.webContents.send('window:maximized', false); } catch (_) { /* ignore */ } });
 
   if (isDev) {
     logger.info('[main] Running in development');
-    splashScreen.loadURL('http://localhost:4200/assets/splashscreens/splashscreen-1/index.html');
     mainWindow.loadURL('http://localhost:4200/');
   } else {
-    logger.info('[main] Running in production');
-    splashScreen.loadFile('./dist/browser/assets/splashscreens/splashscreen-1/index.html');
-    mainWindow.loadFile('./dist/browser/index.html');
+    // Compile-time i18n: each language is a separate build under
+    // dist/browser/<locale>/. Pick the folder from the saved preference (falls
+    // back to en-IN, then to a non-localized single build at dist/browser/).
+    const browserDir = path.join(__dirname, '..', 'dist', 'browser');
+    const localeDir = resolveLocaleDir(browserDir);
+    const appDir = localeDir ? path.join(browserDir, localeDir) : browserDir;
+    logger.info(`[main] Running in production (locale: ${localeDir || 'default'})`);
+    mainWindow.loadFile(path.join(appDir, 'index.html'));
   }
 
   // Defensive: slam DevTools closed in the packaged build even if a user
@@ -197,29 +223,9 @@ const createWindow = () => {
     });
   }
 
-  // Surface preload load failures. Silent failures here were the reason the
-  // splash could hang forever: window.electronAPI is undefined and the
-  // splash-close script fails the `if (api && api.app)` guard.
   mainWindow.webContents.on('preload-error', (_e, preloadPath, error) => {
     logger.error('[main] preload-error:', preloadPath, error);
   });
-
-  // Safety net: if the renderer never triggers close_splashscreen (preload
-  // failed, network stall, etc.), notify the renderer, then force-show.
-  const splashFallbackTimer = setTimeout(() => {
-    logger.warn('[main] Splash fallback timer fired; forcing main window visible');
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      try { mainWindow.webContents.send('boot:degraded'); } catch (_) { /* ignore */ }
-    }
-    if (splashScreen && !splashScreen.isDestroyed()) {
-      splashScreen.destroy();
-    }
-    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
-      mainWindow.show();
-    }
-  }, 10_000);
-
-  mainWindow.on('closed', () => clearTimeout(splashFallbackTimer));
 };
 
 // ---------------------------------------------------------------------------
@@ -790,15 +796,20 @@ function registerIpcHandlers() {
     app.quit();
   });
 
-  ipcMain.handle('close_splashscreen', () => {
-    logger.info('[main] Closing splashscreen');
-    if (splashScreen && !splashScreen.isDestroyed()) {
-      splashScreen.destroy();
-    }
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.show();
-    }
+  // -- Custom window controls (frameless window) ---------------------------
+  ipcMain.handle('window:minimize', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.minimize(); }
   });
+  ipcMain.handle('window:toggleMaximize', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) { return false; }
+    if (mainWindow.isMaximized()) { mainWindow.unmaximize(); } else { mainWindow.maximize(); }
+    return mainWindow.isMaximized();
+  });
+  ipcMain.handle('window:close', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.close(); }
+  });
+  ipcMain.handle('window:isMaximized', () =>
+    !!(mainWindow && !mainWindow.isDestroyed() && mainWindow.isMaximized()));
 
   // -- Logger --------------------------------------------------------------
   ipcMain.handle('logger:info',  (_event, msg) => { logger.info(msg);  });
@@ -929,6 +940,10 @@ async function scheduleNextIbjaFire() {
 // Lifecycle
 // ---------------------------------------------------------------------------
 app.whenReady().then(() => {
+  // No native application menu (removes the File / Edit / View … menu bar).
+  // The frameless window draws its own title bar + controls in the renderer.
+  Menu.setApplicationMenu(null);
+
   // Open the SQLite handle (create file + run migrations) before registering
   // handlers so the very first IPC call has a live database.
   try {

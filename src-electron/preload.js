@@ -142,8 +142,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   app: {
-    relaunch:          ()  => ipcRenderer.invoke('app:relaunch'),
-    closeSplashscreen: ()  => ipcRenderer.invoke('close_splashscreen'),
+    relaunch: () => ipcRenderer.invoke('app:relaunch'),
+  },
+
+  // Custom title-bar controls for the frameless window.
+  windowControls: {
+    minimize:       ()  => ipcRenderer.invoke('window:minimize'),
+    toggleMaximize: ()  => ipcRenderer.invoke('window:toggleMaximize'),
+    close:          ()  => ipcRenderer.invoke('window:close'),
+    isMaximized:    ()  => ipcRenderer.invoke('window:isMaximized'),
+    onMaximizeChange: (callback) => {
+      if (typeof callback !== 'function') { return () => undefined; }
+      const listener = (_event, isMax) => callback(isMax);
+      ipcRenderer.on('window:maximized', listener);
+      return () => ipcRenderer.removeListener('window:maximized', listener);
+    },
   },
 
   logger: {

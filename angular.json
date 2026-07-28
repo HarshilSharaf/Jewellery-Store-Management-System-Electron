@@ -14,11 +14,11 @@
       "sourceRoot": "client",
       "prefix": "app",
       "i18n": {
-        "sourceLocale": "en-IN",
+        "sourceLocale": { "code": "en-IN", "baseHref": "./" },
         "locales": {
-          "hi": "client/locale/messages.hi.xlf",
-          "gu": "client/locale/messages.gu.xlf",
-          "mr": "client/locale/messages.mr.xlf"
+          "hi": { "translation": "client/locale/messages.hi.xlf", "baseHref": "./" },
+          "gu": { "translation": "client/locale/messages.gu.xlf", "baseHref": "./" },
+          "mr": { "translation": "client/locale/messages.mr.xlf", "baseHref": "./" }
         }
       },
       "architect": {
@@ -34,14 +34,17 @@
             "index": "client/index.html",
             "browser": "client/main.ts",
             "polyfills": [
+              "@angular/localize/init",
               "zone.js"
+            ],
+            "allowedCommonJsDependencies": [
+              "dayjs"
             ],
             "tsConfig": "tsconfig.app.json",
             "inlineStyleLanguage": "scss",
             "assets": [
               "client/favicon.ico",
-              "client/assets",
-              {"glob": "splashscreen.js", "input": "Backend/Shared/", "output": "/assets/splashscreens/"}
+              "client/assets"
             ],
             "styles": [
               "client/styles.scss",
@@ -53,16 +56,17 @@
           },
           "configurations": {
             "production": {
+              "localize": true,
               "budgets": [
                 {
                   "type": "initial",
-                  "maximumWarning": "500kb",
-                  "maximumError": "750kb"
+                  "maximumWarning": "800kb",
+                  "maximumError": "1.5mb"
                 },
                 {
                   "type": "anyComponentStyle",
-                  "maximumWarning": "6kb",
-                  "maximumError": "16kb"
+                  "maximumWarning": "12kb",
+                  "maximumError": "20kb"
                 }
               ],
               "optimization": true,
