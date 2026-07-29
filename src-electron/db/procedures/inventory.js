@@ -24,6 +24,18 @@ function nz(v) { return v === undefined ? null : v; }
 function coalesce(v, fallback) { return v === null || v === undefined ? fallback : v; }
 
 /**
+ * Normalises a HUID for storage: trims, uppercases, and coerces blank to NULL.
+ * The `uk_products_huid` UNIQUE index permits many NULLs but only one ''; a
+ * blank must become NULL so untagged products don't collide. Uppercasing keeps
+ * stored HUIDs consistent with how they're searched/scanned.
+ */
+function normHuid(v) {
+  if (v === null || v === undefined) { return null; }
+  const s = String(v).trim().toUpperCase();
+  return s.length ? s : null;
+}
+
+/**
  * Local helper — replaces the product image-name idiom
  *   CONCAT(UNIX_TIMESTAMP(), '-product-', <guid>, '.', SUBSTRING_INDEX(name,'.',-1))
  * used by add_product / update_product_image. NOTE: this format is product-
@@ -66,7 +78,9 @@ function add_product(db, params) {
         hsnCode, imagePath, isSold, mid, sid, pid
      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`
   ).run(
-    guid, nz(sku), nz(huid), nz(purityCode), nz(productDescription),
+    // huid: coerce blank -> NULL (SQLite UNIQUE allows many NULLs but not many
+    // ''), and normalise to uppercase to match how HUIDs are searched/scanned.
+    guid, nz(sku), normHuid(huid), nz(purityCode), nz(productDescription),
     toMg(grossWeight), toMg(netWeight), toMg(stoneWeight), toPaise(stoneCharges),
     coalesce(makingMode, 'perGram'), toPaise(makingValue), nz(wastagePercent),
     toPaise(costPrice), toPaise(tagPrice), coalesce(hsnCode, '7113'),
@@ -187,7 +201,7 @@ function update_product_details(db, params) {
             pid                = ?
       WHERE productGuid = ?`
   ).run(
-    nz(sku), nz(huid), nz(purityCode), nz(productDescription),
+    nz(sku), normHuid(huid), nz(purityCode), nz(productDescription),
     toMg(grossWeight), toMg(netWeight), toMg(stoneWeight), toPaise(stoneCharges),
     nz(makingMode), toPaise(makingValue), nz(wastagePercent),
     toPaise(costPrice), toPaise(tagPrice), nz(hsnCode),

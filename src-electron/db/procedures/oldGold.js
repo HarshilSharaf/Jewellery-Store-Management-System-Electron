@@ -157,8 +157,41 @@ function get_old_gold_receipts_by_customer(db, params) {
   return [hydrateRows(rows).map(withCustomerName)];
 }
 
+/**
+ * delete_old_gold_receipt(p_receiptGuid, p_actorUserId)
+ * Deletes an old-gold receipt ONLY while it is unbilled (invoiceId IS NULL) —
+ * used when the cart removes an old-gold entry before the sale is saved, so the
+ * standalone receipt row isn't left orphaned. A receipt already linked to an
+ * invoice is left untouched (returns deleted: 0). Audits on delete.
+ */
+function delete_old_gold_receipt(db, params) {
+  const [p_receiptGuid, p_actorUserId] = params;
+
+  const run = db.transaction(() => {
+    const row = db.prepare(
+      'SELECT id, invoiceId FROM oldgoldreceipts WHERE receiptGuid = ?'
+    ).get(nz(p_receiptGuid));
+
+    if (!row) { return { deleted: 0 }; }
+    if (row.invoiceId != null) { return { deleted: 0 }; } // billed -> keep
+
+    db.prepare('DELETE FROM oldgoldreceipts WHERE id = ?').run(row.id);
+    writeAudit(db, {
+      actorUserId: nz(p_actorUserId),
+      action: 'delete_old_gold_receipt',
+      entity: 'oldgoldreceipts',
+      entityId: row.id,
+      after: { receiptGuid: nz(p_receiptGuid) },
+    });
+    return { deleted: 1 };
+  });
+
+  return [[hydrateRow(run())]];
+}
+
 module.exports = {
   save_old_gold_receipt,
   get_old_gold_receipt_by_invoice,
   get_old_gold_receipts_by_customer,
+  delete_old_gold_receipt,
 };
