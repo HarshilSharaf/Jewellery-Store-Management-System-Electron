@@ -26,37 +26,28 @@
     "engines": {
         "node": ">=20.19.0"
     },
+    "//deps-note": "Only Node/main-process runtime libs belong in dependencies. Everything the renderer uses (Angular, rxjs, chart.js, dayjs, ngx-*, driver.js, zone.js, tslib, base64-js) is build-time only — bundled into dist/ by ng build and never required from node_modules at runtime — so it lives in devDependencies to stay OUT of the packaged app.",
     "dependencies": {
+        "bcryptjs": "^2.4.3",
+        "better-sqlite3": "^13.0.1",
+        "electron-log": "^5.4.4",
+        "electron-store": "^8.2.0",
+        "serialport": "^12.0.0"
+    },
+    "devDependencies": {
         "@angular/animations": "^21.2.18",
+        "@angular/build": "^21.2.18",
         "@angular/cdk": "^21.2.9",
+        "@angular/cli": "^21.2.18",
         "@angular/common": "^21.2.18",
         "@angular/compiler": "^21.2.18",
+        "@angular/compiler-cli": "^21.2.18",
         "@angular/core": "^21.2.18",
         "@angular/forms": "^21.2.18",
         "@angular/localize": "^21.2.18",
         "@angular/platform-browser": "^21.2.18",
         "@angular/platform-browser-dynamic": "^21.2.18",
         "@angular/router": "^21.2.18",
-        "base64-js": "^1.5.1",
-        "bcryptjs": "^2.4.3",
-        "better-sqlite3": "^13.0.1",
-        "chart.js": "^4.5.1",
-        "dayjs": "^1.11.21",
-        "driver.js": "^1.8.0",
-        "electron-log": "^5.4.4",
-        "electron-store": "^8.2.0",
-        "ngx-image-compress": "^18.1.7",
-        "ngx-skeleton-loader": "^13.0.0",
-        "ngx-ui-loader": "^19.0.0",
-        "rxjs": "^7.8.2",
-        "serialport": "^12.0.0",
-        "tslib": "^2.8.1",
-        "zone.js": "~0.16.0"
-    },
-    "devDependencies": {
-        "@angular/build": "^21.2.18",
-        "@angular/cli": "^21.2.18",
-        "@angular/compiler-cli": "^21.2.18",
         "@ng-icons/core": "^34.0.0",
         "@ng-icons/lucide": "^34.0.0",
         "@types/bcryptjs": "^2.4.6",
@@ -78,7 +69,17 @@
         "tailwind-merge": "^2.6.1",
         "tailwindcss": "^3.4.19",
         "tailwindcss-animate": "^1.0.7",
-        "typescript": "~5.9.0"
+        "typescript": "~5.9.0",
+        "base64-js": "^1.5.1",
+        "chart.js": "^4.5.1",
+        "dayjs": "^1.11.21",
+        "driver.js": "^1.8.0",
+        "ngx-image-compress": "^18.1.7",
+        "ngx-skeleton-loader": "^13.0.0",
+        "ngx-ui-loader": "^19.0.0",
+        "rxjs": "^7.8.2",
+        "tslib": "^2.8.1",
+        "zone.js": "~0.16.0"
     },
     "overrides": {
         "@hono/node-server": "^2.0.5"
@@ -92,6 +93,8 @@
         },
         "npmRebuild": false,
         "buildDependenciesFromSource": false,
+        "compression": "maximum",
+        "afterPack": "./Scripts/afterPack.js",
         "publish": [
             {
                 "provider": "github",
@@ -103,7 +106,11 @@
             "dist/**/*",
             "src-electron/**/*",
             "Backend/**/*",
-            "package.json"
+            "package.json",
+            "!**/*.map",
+            "!node_modules/better-sqlite3/deps/**",
+            "!node_modules/better-sqlite3/src/**",
+            "!node_modules/better-sqlite3/build/**"
         ],
         "asarUnpack": [
             "**/node_modules/better-sqlite3/**",
