@@ -1,6 +1,6 @@
 {
     "name": "com.jewellery.store.management.system",
-    "version": "0.0.0",
+    "version": "0.0.0-beta-1",
     "description": "Offline-first jewellery store management system (POS) for single-shop Indian jewellers.",
     "author": "Harshil Sharaf",
     "main": "src-electron/main.js",
