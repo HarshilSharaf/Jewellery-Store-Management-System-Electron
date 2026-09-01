@@ -1,4 +1,4 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, signal, inject } from '@angular/core';
 import { StoreServiceInterface } from 'client/app/interfaces/Shared/store-service-interface';
 import { LoggerService } from './logger.service';
 
@@ -6,11 +6,11 @@ import { LoggerService } from './logger.service';
   providedIn: 'root'
 })
 export class StoreService implements StoreServiceInterface {
+  private loggerService = inject(LoggerService);
+
 
   private electronAPI: any = (window as any).electronAPI;
   isStoreInitialized = signal<boolean>(false);
-
-  constructor(private loggerService: LoggerService) {}
 
   async initializeStore(): Promise<void> {
     // The concrete electron-store instance lives in the main process now.

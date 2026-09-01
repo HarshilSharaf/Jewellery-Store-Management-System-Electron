@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { DatabaseService } from '../Shared/database.service';
 import { CategoryServiceInterface } from 'client/app/interfaces/Categories/category-service-interface';
 
@@ -6,8 +6,8 @@ import { CategoryServiceInterface } from 'client/app/interfaces/Categories/categ
   providedIn: 'root'
 })
 export class DbCategoriesService implements CategoryServiceInterface{
+  private databaseService = inject(DatabaseService);
 
-  constructor(private databaseService:DatabaseService) { }
 
   getAllCategories() {
     return this.databaseService.query("call get_all_categories();")

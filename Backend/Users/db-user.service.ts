@@ -1,12 +1,12 @@
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { DatabaseService } from '../Shared/database.service';
 
 @Injectable({
   providedIn: 'root'
 })
 export class DbUserService {
+  private dbService = inject(DatabaseService);
 
-  constructor(private dbService:DatabaseService) { }
 
   getUserDetails(userId:number) {
     return this.dbService.execute("call get_user_details(?);",[

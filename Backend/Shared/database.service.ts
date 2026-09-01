@@ -25,6 +25,10 @@ export interface DbQueryOptions {
   providedIn: 'root'
 })
 export class DatabaseService implements DatabaseServiceInterface {
+  private storeService = inject(StoreService);
+  private router = inject(Router);
+  private loggerService = inject(LoggerService);
+
 
   /**
    * Renderer-side handle to the main-process managed pool. This is
@@ -36,12 +40,6 @@ export class DatabaseService implements DatabaseServiceInterface {
   public dbConnection: any;
   private electronAPI: any = (window as any).electronAPI;
   private dialog = inject(AppDialogService);
-
-  constructor(
-    private storeService: StoreService,
-    private router: Router,
-    private loggerService: LoggerService
-  ) {}
 
   async initializeDbConnection(): Promise<void> {
     try {

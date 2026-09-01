@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { DatabaseService } from './database.service';
 import { LoggerService } from './logger.service';
 
@@ -38,11 +38,9 @@ function toBool(v: unknown): boolean {
   providedIn: 'root',
 })
 export class OnboardingService {
+  private databaseService = inject(DatabaseService);
+  private loggerService = inject(LoggerService);
 
-  constructor(
-    private databaseService: DatabaseService,
-    private loggerService: LoggerService,
-  ) {}
 
   /** Reads the persisted state from the DB. */
   async getState(): Promise<OnboardingState> {

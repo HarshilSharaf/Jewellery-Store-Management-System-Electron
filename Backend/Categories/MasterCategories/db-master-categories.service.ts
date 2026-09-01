@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { DatabaseService } from '../../Shared/database.service';
 import { MasterCategoryServiceInterface } from 'client/app/interfaces/Categories/MasterCategories/master-category-service-interface';
 
@@ -6,8 +6,8 @@ import { MasterCategoryServiceInterface } from 'client/app/interfaces/Categories
   providedIn: 'root'
 })
 export class DbMasterCategoriesService implements MasterCategoryServiceInterface{
+  private databaseService = inject(DatabaseService);
 
-  constructor(private databaseService:DatabaseService) { }
 
   getMasterCategories(){
     return this.databaseService.query("call get_master_categories();")

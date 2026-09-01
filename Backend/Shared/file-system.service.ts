@@ -2,7 +2,7 @@ import * as base64js from 'base64-js';
 import { NgxImageCompressService } from 'ngx-image-compress';
 import { DOC_ORIENTATION } from 'ngx-image-compress';
 import { LoggerService } from './logger.service';
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { FileSystemServiceInterface } from 'client/app/interfaces/Shared/file-system-service-interface';
 
 /**
@@ -15,6 +15,9 @@ import { FileSystemServiceInterface } from 'client/app/interfaces/Shared/file-sy
   providedIn: 'root'
 })
 export class FileSystemService implements FileSystemServiceInterface {
+  private imageCompressService = inject(NgxImageCompressService);
+  private loggerService = inject(LoggerService);
+
 
   public imagesParentDirectoryForApp = 'Jewellery-Store-Management-System';
   public customerImagesDirectoryName = 'customerImages';
@@ -27,10 +30,7 @@ export class FileSystemService implements FileSystemServiceInterface {
   private electronAPI: any = (window as any).electronAPI;
   private readyPromise: Promise<void>;
 
-  constructor(
-    private imageCompressService: NgxImageCompressService,
-    private loggerService: LoggerService
-  ) {
+  constructor() {
     this.readyPromise = this.initDirectories();
   }
 

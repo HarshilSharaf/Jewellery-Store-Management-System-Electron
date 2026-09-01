@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { DatabaseService } from '../../Shared/database.service';
 import { SubCategoryServiceInterface } from 'client/app/interfaces/Categories/SubCategories/sub-category-service-interface';
 
@@ -6,8 +6,8 @@ import { SubCategoryServiceInterface } from 'client/app/interfaces/Categories/Su
   providedIn: 'root'
 })
 export class DbSubCategoriesService implements SubCategoryServiceInterface{
+  private databaseService = inject(DatabaseService);
 
-  constructor(private databaseService: DatabaseService) { }
 
   getSubCategories() {
     return this.databaseService.query("call get_sub_categories();")

@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { DatabaseService } from '../../Shared/database.service';
 import { ProductCategoryServiceInterface } from 'client/app/interfaces/Categories/ProductCategories/product-category-service-interface';
 
@@ -6,8 +6,8 @@ import { ProductCategoryServiceInterface } from 'client/app/interfaces/Categorie
   providedIn: 'root'
 })
 export class DbProductCategoriesService implements ProductCategoryServiceInterface {
+  private databaseService = inject(DatabaseService);
 
-  constructor(private databaseService: DatabaseService) { }
 
   getTopProductCategories(numberOfCategories:number) {
     return this.databaseService.execute("call get_top_product_categories(?);",[

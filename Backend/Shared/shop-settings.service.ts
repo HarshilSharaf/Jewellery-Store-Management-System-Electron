@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { DatabaseService } from './database.service';
 import { ShopSettings } from './interfaces/shop-settings';
 
@@ -6,8 +6,8 @@ import { ShopSettings } from './interfaces/shop-settings';
   providedIn: 'root'
 })
 export class ShopSettingsService {
+  private databaseService = inject(DatabaseService);
 
-  constructor(private databaseService: DatabaseService) {}
 
   get(): Promise<ShopSettings[]> {
     return this.databaseService.query('call get_shop_settings();');
