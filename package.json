@@ -12,6 +12,7 @@
         "test": "ng test",
         "test:db": "node --test \"src-electron/db/**/*.test.js\"",
         "seed:demo": "node src-electron/db/seed-demo.js",
+        "seed:demo:fresh": "node src-electron/db/seed-demo.js --fresh",
         "seed:demo:large": "node src-electron/db/seed-demo.js large",
         "backup:decrypt": "node src-electron/db/decrypt-backup.js",
         "dev": "ng serve",

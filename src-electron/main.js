@@ -30,6 +30,8 @@ const logger = require('electron-log');
 const sqliteDb = require('./db');
 const sqliteRouter = require('./db/router');
 
+const { runBenchmarks, cancelBenchmarks, listPerfIndexes } = require('./perf/benchmark-runner');
+
 // ---------------------------------------------------------------------------
 // Chromium / V8 command-line switches. Must be appended BEFORE app.whenReady()
 // resolves; Chromium locks these once the browser process finishes bootstrap.
@@ -814,6 +816,11 @@ function registerIpcHandlers() {
   // -- Logger --------------------------------------------------------------
   ipcMain.handle('logger:info',  (_event, msg) => { logger.info(msg);  });
   ipcMain.handle('logger:error', (_event, msg) => { logger.error(msg); });
+
+  // ---- Performance tester --------------------------------------------------
+  ipcMain.handle('perfTest:listIndexes', () => listPerfIndexes(sqliteDb.getDb()));
+  ipcMain.handle('perfTest:run',    (_event, config) => runBenchmarks(mainWindow, config));
+  ipcMain.handle('perfTest:cancel', () => { cancelBenchmarks(); return { cancelled: true }; });
 }
 
 // ---------------------------------------------------------------------------

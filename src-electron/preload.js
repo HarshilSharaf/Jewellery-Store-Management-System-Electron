@@ -163,4 +163,30 @@ contextBridge.exposeInMainWorld('electronAPI', {
     info:  (msg) => ipcRenderer.invoke('logger:info', msg),
     error: (msg) => ipcRenderer.invoke('logger:error', msg),
   },
+
+  perfTest: {
+    listIndexes: ()       => ipcRenderer.invoke('perfTest:listIndexes'),
+    run:  (config)        => ipcRenderer.invoke('perfTest:run', config),
+    cancel: ()            => ipcRenderer.invoke('perfTest:cancel'),
+    onProgress: (cb) => {
+      const fn = (_e, d) => cb(d);
+      ipcRenderer.on('perfTest:progress', fn);
+      return () => ipcRenderer.removeListener('perfTest:progress', fn);
+    },
+    onResult: (cb) => {
+      const fn = (_e, d) => cb(d);
+      ipcRenderer.on('perfTest:result', fn);
+      return () => ipcRenderer.removeListener('perfTest:result', fn);
+    },
+    onDone: (cb) => {
+      const fn = (_e, d) => cb(d);
+      ipcRenderer.on('perfTest:done', fn);
+      return () => ipcRenderer.removeListener('perfTest:done', fn);
+    },
+    onError: (cb) => {
+      const fn = (_e, d) => cb(d);
+      ipcRenderer.on('perfTest:error', fn);
+      return () => ipcRenderer.removeListener('perfTest:error', fn);
+    },
+  },
 });

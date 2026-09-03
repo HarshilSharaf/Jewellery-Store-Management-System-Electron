@@ -460,13 +460,64 @@ function get_all_orders(db, params) {
       ORDER BY A.createdAt DESC LIMIT @limit OFFSET @offset`
   ).all({ p: pattern, limit, offset });
 
+  if (rows.length === 0) return [[count], []];
+
+  // Batch-load all three child collections to avoid N×3 per-row queries.
+  const invoiceIds = rows.map(r => r.id);
+  const customerIds = [...new Set(rows.map(r => r.soldToCustomer))];
+  const invPh  = invoiceIds.map(() => '?').join(',');
+  const custPh = customerIds.map(() => '?').join(',');
+
+  const rawLineItems = db.prepare(
+    `SELECT li.invoiceId, li.lineType, li.description, li.productId,
+            p.productGuid, p.sku, p.huid,
+            li.purityCode, li.netWeight, li.ratePerGram, li.taxableAmount, li.lineTotal,
+            m.masterCategoryName   AS masterCategory,
+            s.subCategoryName      AS subCategory,
+            pc.productCategoryName AS productCategory
+       FROM invoicelineitems li
+       LEFT JOIN products p           ON li.productId = p.id
+       LEFT JOIN mastercategories m   ON p.mid = m.id
+       LEFT JOIN subcategories s      ON p.sid = s.id
+       LEFT JOIN productcategories pc ON p.pid = pc.id
+      WHERE li.invoiceId IN (${invPh})`
+  ).all(...invoiceIds);
+
+  const rawPayments = db.prepare(
+    `SELECT invoiceId, amount, paymentType, refNumber, remarks, receivedOn
+       FROM payments WHERE invoiceId IN (${invPh})`
+  ).all(...invoiceIds);
+
+  const rawCustomers = db.prepare(
+    `SELECT id AS customerId, customerGuid, firstName, lastName, gender, city, phoneNumber
+       FROM customers WHERE id IN (${custPh})`
+  ).all(...customerIds);
+
+  const liByInvoice = new Map();
+  for (const li of rawLineItems) {
+    const { invoiceId, ...rest } = li;
+    if (!liByInvoice.has(invoiceId)) liByInvoice.set(invoiceId, []);
+    liByInvoice.get(invoiceId).push(rest);
+  }
+
+  const pmtByInvoice = new Map();
+  for (const pmt of rawPayments) {
+    const { invoiceId, ...rest } = pmt;
+    if (!pmtByInvoice.has(invoiceId)) pmtByInvoice.set(invoiceId, []);
+    pmtByInvoice.get(invoiceId).push(rest);
+  }
+
+  const custById = new Map(rawCustomers.map(c => [c.customerId, c]));
+
   const page = rows.map((raw) => {
-    const customerId = raw.soldToCustomer;
     const row = hydrateRow(raw);
-    delete row.soldToCustomer; // not part of the SP's SELECT projection
-    row.lineItems = lineItemsBrief(db, raw.id);
-    row.customerDetails = customerBrief(db, customerId);
-    row.payments = paymentsBrief(db, raw.id);
+    const customerId = raw.soldToCustomer;
+    delete row.soldToCustomer;
+    const lis  = liByInvoice.get(raw.id)  || [];
+    const pmts = pmtByInvoice.get(raw.id) || [];
+    row.lineItems      = lis.length  ? hydrateRows(lis)  : null;
+    row.payments       = pmts.length ? hydrateRows(pmts) : null;
+    row.customerDetails = custById.has(customerId) ? hydrateRow(custById.get(customerId)) : null;
     return row;
   });
 
@@ -525,11 +576,21 @@ function get_recent_orders(db, params) {
       LIMIT ?`
   ).all(limit);
 
+  const customerIds = [...new Set(rows.map(r => r.soldToCustomer))];
+  const rawCustomers = customerIds.length
+    ? db.prepare(
+        `SELECT id AS customerId, firstName, lastName, gender, city
+           FROM customers WHERE id IN (${customerIds.map(() => '?').join(',')})`
+      ).all(...customerIds)
+    : [];
+  const custById = new Map(rawCustomers.map(c => [c.customerId, c]));
+
   const out = rows.map((raw) => {
     const customerId = raw.soldToCustomer;
     const row = hydrateRow(raw);
     delete row.soldToCustomer;
-    row.customerDetails = customerRecent(db, customerId);
+    const cust = custById.get(customerId);
+    row.customerDetails = cust ? hydrateRow(cust) : null;
     return row;
   });
 

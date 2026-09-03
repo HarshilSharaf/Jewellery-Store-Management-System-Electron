@@ -21,6 +21,7 @@ const MIGRATIONS = [
   { version: 4, name: 'query_opt_indexes',  sqlFile: '004_query_opt_indexes.sql' },
   { version: 5, name: 'onboarding_state',   sqlFile: '005_onboarding_state.sql' },
   { version: 6, name: 'onboarding_sample',  sqlFile: '006_onboarding_sample_flag.sql' },
+  { version: 7, name: 'perf_products_sort', sqlFile: '007_perf_products_sort.sql' },
 ];
 
 function readSchema(sqlFile) {

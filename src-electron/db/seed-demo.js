@@ -28,8 +28,9 @@ const procs = require('./procedures');
 const { applyMigrations } = require('./migrate');
 
 // ---- config ---------------------------------------------------------------
-const SIZE = /large/i.test(process.argv.slice(2).join(' ')) || /large/i.test(process.env.SEED_SIZE || '')
-  ? 'large' : 'small';
+const ARGS  = process.argv.slice(2).join(' ');
+const SIZE  = /large/i.test(ARGS) || /large/i.test(process.env.SEED_SIZE || '') ? 'large' : 'small';
+const FRESH = /--fresh/i.test(ARGS);
 const N = SIZE === 'large'
   ? { customers: 100, products: 800, orders: 250, karigars: 12, jobs: 20, schemes: 15, repairs: 30 }
   : { customers: 15, products: 60, orders: 25, karigars: 3, jobs: 3, schemes: 3, repairs: 4 };
@@ -322,9 +323,13 @@ function seedDemoData(db, opts = {}) {
 // is executed directly — importing it (e.g. from the app for runtime sample
 // loading) must NOT trigger a seed.
 function seed() {
+  const log = (m) => process.stdout.write(m + '\n');
+  if (FRESH && fs.existsSync(DB_PATH)) {
+    fs.rmSync(DB_PATH);
+    log(`Deleted existing database at ${DB_PATH}`);
+  }
   const db = new Database(DB_PATH);
   ensureSchema(db);
-  const log = (m) => process.stdout.write(m + '\n');
   log(`Seeding ${SIZE} demo set into ${DB_PATH}`);
   const admin = db.prepare("SELECT uid FROM users WHERE userName='admin'").get();
   seedDemoData(db, { size: SIZE, adminUid: admin ? admin.uid : null, log });
